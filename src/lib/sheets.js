@@ -781,7 +781,7 @@ export async function getCaregiverNameFromSheet(email) {
     if(!configLoaded) await configPromise;
     
     const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
-    console.log(`Starting getCaregiverNameFromSheet for sheetID: ${spreadsheetId}`);  
+    console.log(`#$#$Starting getCaregiverNameFromSheet for sheetID: ${spreadsheetId}`);  
     if (!spreadsheetId) throw new Error('Could not find caregiver sheet' );  
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0]; 
