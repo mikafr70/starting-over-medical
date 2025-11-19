@@ -1,0 +1,13 @@
+date,day,morning,noon,evening,treatment,dosage,body part,duration,loctaion,case,notes
+14-11-25,Friday,1,0,1,med1,0.5,eye,5,,eye injury,
+14-11-25,Friday,0,0,1,med2,0.6,Head,3,,eye injury,
+13-11-25,Thursday,1,0,1,med1,0.5,eye,4,,eye injury,
+13-11-25,Thursday,1,1,1,med3,1,Tail,4,,eye injury,
+12-11-25,Wednesday,1,0,1,med1,0.5,eye,3,,eye injury,
+12-11-25,Wednesday,0,0,1,med2,0.6,Head,2,,eye injury,
+12-11-25,Wednesday,1,1,1,med3,1,Tail,3,,eye injury,
+11-11-25,Tuesday,1,0,1,med1,0.5,eye,2,,eye injury,
+11-11-25,Tuesday,1,1,1,med3,1,Tail,2,,eye injury,
+10-11-25,Monday,1,0,1,med1,0.5,eye,1,,eye injury,
+10-11-25,Monday,0,0,1,med2,0.6,Head,1,,eye injury,
+10-11-25,Monday,1,1,1,med3,1,Tail,1,,eye injury,

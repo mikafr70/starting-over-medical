@@ -1,0 +1,4 @@
+treatmentType,medication,days,frequency,dosage,bodyPart,morning,noon,evening
+eye injury,med1,5,1,0.5,eye,1,0,1
+eye injury,med2,6,2,0.6,Head,0,0,1
+eye injury,med3,14,1,1,Tail,1,1,1
