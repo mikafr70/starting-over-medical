@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { ArrowRight, Calendar, Pill } from "lucide-react";
+import { API_ENDPOINTS } from "../config/api";
 
 
 
@@ -93,7 +94,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
     const fetchProfile = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/treatments?profile=1&animalType=${encodeURIComponent(animalType)}&animalId=${encodeURIComponent(animalId)}`);
+        const res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalId));
         if (!res.ok) throw new Error('Failed to fetch animal profile');
         const data = await res.json();
         console.log('Fetched animal profile data:', data.treatments);
@@ -172,7 +173,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
                   onClick={async () => {
                     setSavingAnimal(true);
                     try {
-                      const res = await fetch(`/api/treatments?profile=1&animalType=${encodeURIComponent(animalType)}&animalId=${encodeURIComponent(animalId)}`, {
+                      const res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalId), {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ animalType, updatedAnimal: editAnimal })
@@ -223,14 +224,14 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
                           noon: normalizeCheckbox(t.noon),
                           evening: normalizeCheckbox(t.evening)
                         }));
-                        const res = await fetch(`/api/treatments/bulk?animalType=${encodeURIComponent(animalType)}&animalName=${encodeURIComponent(animal.name)}&delete=TRUE`, {
+                        const res = await fetch(API_ENDPOINTS.treatmentsBulk(animal.name, animalType, { delete: 'TRUE' }), {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ treatments: treatmentsToSave })
                         });
                         if (!res.ok) throw new Error('Failed to save treatments');
                         // Optionally refetch updated treatments
-                        const updated = await fetch(`/api/treatments?profile=1&animalType=${encodeURIComponent(animalType)}&animalId=${encodeURIComponent(animalId)}`);
+                        const updated = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalId));
                         const data = await updated.json();
                         setTreatments(data.treatments || []);
                         setEditTreatments((data.treatments || []).map((t: any) => ({ ...t })));

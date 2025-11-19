@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Calendar, Pill, AlertCircle } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { API_ENDPOINTS } from "../config/api";
 
 
 interface Treatment {
@@ -69,8 +70,20 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
         lastEmailRef.current = email;
 
         // 1. Get caregiver name from backend
-        const caregiverNameRes = await fetch(`/api/caregiver?email=${encodeURIComponent(email)}`);
+        console.log("%%%%%%% Caregiver fetching from email:", email);
+        const caregiverUrl = API_ENDPOINTS.caregiver(email);
+        console.log("%%%%%%% Caregiver URL:", caregiverUrl);
+        
+        const caregiverNameRes = await fetch(caregiverUrl);
+        console.log("%%%%%%%%%%%% Caregiver name response status:", caregiverNameRes.status);
+        
+        if (!caregiverNameRes.ok) {
+          throw new Error(`Failed to fetch caregiver: ${caregiverNameRes.status} ${caregiverNameRes.statusText}`);
+        }
+        
         const nameObj = await caregiverNameRes.json();
+        console.log("%%%%%%%%%%%% Caregiver name response data:", nameObj);
+        
         // backend may return { caregiverName: string } but sheets util might return an array
         let nameRaw = nameObj?.caregiverName ?? nameObj ?? '';
         if (Array.isArray(nameRaw)) nameRaw = nameRaw[0] || '';
@@ -84,7 +97,16 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
         }
 
         // retrieve all animals that belong to caregiver and have treatments for today
-        const animalsForTodayRes = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}`);
+        const animalsUrl = API_ENDPOINTS.animals(name);
+        console.log("%%%%%%% Animals URL:", animalsUrl);
+        
+        const animalsForTodayRes = await fetch(animalsUrl);
+        console.log("%%%%%%%%%%%% Animals response status:", animalsForTodayRes.status);
+        
+        if (!animalsForTodayRes.ok) {
+          throw new Error(`Failed to fetch animals: ${animalsForTodayRes.status} ${animalsForTodayRes.statusText}`);
+        }
+        
         const animalsForTodayData: Animal[] = await animalsForTodayRes.json();
         const list = Array.isArray(animalsForTodayData) ? animalsForTodayData : [];
         setAnimalsForTodayList(list);

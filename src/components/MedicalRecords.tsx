@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
+import { API_ENDPOINTS } from "../config/api";
 
 interface Animal {
   id: string;
@@ -35,7 +36,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
   useEffect(() => {
     const loadTypes = async () => {
       try {
-        const res = await fetch('/api/treatments');
+        const res = await fetch(API_ENDPOINTS.treatments());
         if (!res.ok) throw new Error('Failed to load types');
         const data = await res.json();
         setAnimalTypes(data);
@@ -52,7 +53,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
     setSelectedType(value);
     setSelectedAnimal("");
     try {
-      const res = await fetch(`/api/treatments?animalType=${encodeURIComponent(value)}`);
+      const res = await fetch(API_ENDPOINTS.treatmentsByType(value));
       if (!res.ok) throw new Error('Failed to load animals');
       const data = await res.json();
       console.log('Fetched animals data:', data);

@@ -45,7 +45,11 @@
     "recharts": "^2.15.2",
     "sonner": "^2.0.3",
     "tailwind-merge": "*",
-    "vaul": "^1.1.2"
+    "vaul": "^1.1.2",
+    "dotenv": "^16.3.1",
+    "google-auth-library": "^10.5.0",
+    "google-spreadsheet": "^4.1.1",
+    "googleapis": "^128.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

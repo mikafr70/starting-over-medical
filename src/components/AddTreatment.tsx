@@ -8,6 +8,7 @@ import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { ArrowRight, Save } from "lucide-react";
 import { toast } from "sonner";
+import { API_ENDPOINTS } from "../config/api";
 import { cn } from "./ui/utils";
 
 // Type definitions
@@ -74,7 +75,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
   useEffect(() => {
     const fetchTypes = async () => {
       try {
-        const response = await fetch('/api/treatments');
+        const response = await fetch(API_ENDPOINTS.treatments());
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
         // data expected: [{ id, displayName, emoji }]
@@ -103,7 +104,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
   useEffect(() => {
     const loadCaregivers = async () => {
       try {
-        const res = await fetch('/api/caregivers');
+        const res = await fetch(API_ENDPOINTS.caregivers());
         if (!res.ok) throw new Error('Failed to load caregivers');
         const data = await res.json();
         if (Array.isArray(data)) setCaregivers(data);
@@ -137,7 +138,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
     setLoading(true);
     try {
       console.log('Fetching animals for type:', value);
-      const res = await fetch(`/api/treatments?animalType=${encodeURIComponent(value)}`);
+      const res = await fetch(API_ENDPOINTS.treatmentsByType(value));
       console.log('Response status:', res.status);
       if (!res.ok) throw new Error(`Failed to load animals for type ${value}`);
       const data = await res.json();
@@ -283,7 +284,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
       setLoading(true);
       try {
         console.log('Sending rows to backend:', rowsToSend);
-        const res = await fetch(`/api/treatments/bulk?animalName=${encodeURIComponent(selectedAnimal)}&animalType=${encodeURIComponent(selectedAnimalType)}&delete=FALSE`, {
+        const res = await fetch(API_ENDPOINTS.treatmentsBulk(selectedAnimal, selectedAnimalType, { delete: 'FALSE' }), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ treatments: rowsToSend })
