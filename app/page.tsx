@@ -3,6 +3,6 @@
 import App from "@/src/App";
 
 export default function Home() {
-  return <App />;
+  return <div>It works!</div>;
 }
 
