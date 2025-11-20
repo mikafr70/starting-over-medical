@@ -6,6 +6,7 @@ import { Badge } from "./ui/badge";
 import { Calendar, Pill, AlertCircle } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { API_ENDPOINTS } from "../config/api";
+import React from "react";
 
 
 interface Treatment {

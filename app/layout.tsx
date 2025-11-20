@@ -1,6 +1,7 @@
 // app/layout.tsx
 import type { Metadata } from "next";
 import "./globals.css"; // create this file if it doesn't exist
+import React from "react";
 
 export const metadata: Metadata = {
   title: "Starting Over Medical",

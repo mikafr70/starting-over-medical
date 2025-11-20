@@ -7,6 +7,7 @@ import { AddTreatment } from "./components/AddTreatment";
 import { Navbar } from "./components/Navbar";
 import { Toaster } from "./components/ui/sonner";
 import { MedicalRecords } from "./components/MedicalRecords";
+import React from "react";
 
 type Screen = "login" | "dashboard" | "schedule" | "profile" | "medicalRecords" | "addTreatment" | "addTreatmentFromSchedule";
 
