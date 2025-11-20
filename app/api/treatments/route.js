@@ -47,63 +47,7 @@ function parseDDMMYYYY(dateStr) {
   return new Date(year, month - 1, day); // month is 0-based
 }
 
-// New API endpoint: GET /api/treatments/profile?animalId=XXX
-export async function GET_PROFILE(request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const animalId = searchParams.get('animalId');
-    const animalType = searchParams.get('type');
-
-    if(!animalType) {
-      return new Response(JSON.stringify({ error: 'animalType is required' }), {
-        status: 400,
-        headers: CORS_HEADERS
-      });
-    }
-    if (!animalId) {  
-
-      return new Response(JSON.stringify({ error: 'animalId is required' }), {
-        status: 400,
-        headers: CORS_HEADERS
-      });
-    }
-
-
-    // Get all animals from the main animals sheet
-    const allAnimals = await getAnimals(animalType);
-    const animal = allAnimals.find(a => a.id === animalId || a.id_number === animalId || a.id2 === animalId);
-    if (!animal) {
-      return new Response(JSON.stringify({ error: 'Animal not found', animalId }), {
-        status: 404,
-        headers: CORS_HEADERS
-      });
-    }
-
-    // Get all treatments for this animal from its individual sheet
-    const allTreatments = await getAnimalTreatments(animalType, animalId);
-    // Filter treatments to only those within 1 week before/after today
-    const now = new Date();
-    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
-    const treatments = allTreatments.filter(tr => {
-    const parsedDate = parseDDMMYYYY(tr.date);
-    console.log('Parsed date for treatment:', tr.date, '->', parsedDate);
-    const trDate = parsedDate ? new Date(parsedDate) : null;
-      if (!trDate || isNaN(trDate.getTime())) return false;
-      return Math.abs(trDate.getTime() - now.getTime()) <= oneWeekMs;
-    });
-
-    return new Response(JSON.stringify({ animal, treatments }), {
-      status: 200,
-      headers: CORS_HEADERS
-    });
-  } catch (err) {
-    console.error('Failed to fetch animal profile:', err);
-    return new Response(JSON.stringify({ error: 'Failed to fetch animal profile' }), {
-      status: 500,
-      headers: CORS_HEADERS
-    });
-  }
-}
+// ...existing code...
 import { log } from 'console';
 import { ANIMAL_TREATMENT_SHEETS, getAnimalTreatments, addTreatmentAtTop, getAnimalsFromSheet, getAnimals, getProtocolsFromSheet, readRecentSheetsAndRows, ensureConfigLoaded, getAllAnimalTypes } from '@/src/lib/sheets'; // ...existing code...
 
