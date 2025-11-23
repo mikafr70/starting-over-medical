@@ -59,6 +59,12 @@ export const ANIMAL_TREATMENT_SHEETS = () => ({
     sheetId: process.env.CHICKENS_SHEET_ID,
     folderId: process.env.CHICKENS_DRIVE_FOLDER_ID,
   },
+  pig: {
+    displayName: "חזיר",
+    emoji: "🐖",
+    sheetId: process.env.PIGS_SHEET_ID,
+    folderId: process.env.PIGS_DRIVE_FOLDER_ID,
+  },
 });
 
 // Helper function to get all animal types
@@ -345,6 +351,7 @@ export async function getAnimalTreatments(animalType, animalId) {
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
+    console.log(`Fetched ${rows.length} treatment rows for animal ${animalId}`);
     await sheet.loadHeaderRow();
     const headers = sheet.headerValues;
     const headerMap = {};
@@ -444,7 +451,7 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
       'goat': 'עז',
       'sheep': 'כבשה',
       'rabbit': 'ארנב',
-      'chicken': 'תרנגול',
+      'pig': 'חזיר',
       'סוס': 'horse',
       'חמור': 'donkey',
       'פרה': 'cow',
@@ -453,7 +460,7 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
       'עז': 'goat',
       'כבשה': 'sheep',
       'ארנב': 'rabbit',
-      'תרנגול': 'chicken'
+      'חזיר': 'pig'
     };
 
     await sheet.loadHeaderRow();
