@@ -4,6 +4,40 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { google } from 'googleapis';
 
+
+// Initialize configuration from sheet on module load
+let configLoaded = false;
+let configPromise = null;
+
+/*--------------------------------------------------
+ Internal field name -> sheet header (Hebrew)
+---------------------------------------------------*/
+const FIELD_TO_HEADER = {
+  name: 'שם',
+  sex: 'מין',
+  description: 'תיאור',
+  weight: 'משקל',
+  arrival_date: 'תאריך הגעה',
+  birth_date: 'תאריך לידה',
+  id: 'שבב',
+  id2: 'שבב נוסף',
+  location: 'מתחם',
+  special_trimming: 'טילוף מיוחד',
+  notes: 'התנהגותי/ הערות',
+  drugs: 'טשטוש',
+  castration: 'ת.סירוס',
+  deworming: 'תאריך תילוע',
+  source: 'מקור',
+  status: 'סטטוס',
+  friends: 'חברויות',
+  in_treatment: 'בטיפול',
+};
+
+
+
+/*--------------------------------------------------
+  Animal treatment sheets configuration
+---------------------------------------------------*/
 export const ANIMAL_TREATMENT_SHEETS = () => ({
   donkey: {
     displayName: "חמור",
@@ -68,7 +102,9 @@ export const ANIMAL_TREATMENT_SHEETS = () => ({
 });
 
 
-// Helper function to get all animal types
+/*--------------------------------------------------
+ Helper function to get all animal types
+---------------------------------------------------*/
 export function getAllAnimalTypes() {
   const sheets = ANIMAL_TREATMENT_SHEETS();   // call the function
   return Object.entries(sheets).map(([type, info]) => ({
@@ -78,29 +114,10 @@ export function getAllAnimalTypes() {
   }));
 }
 
-// internal field name -> sheet header (Hebrew)
-const FIELD_TO_HEADER = {
-  name: 'שם',
-  sex: 'מין',
-  description: 'תיאור',
-  weight: 'משקל',
-  arrival_date: 'תאריך הגעה',
-  birth_date: 'תאריך לידה',
-  id: 'שבב',
-  id2: 'שבב נוסף',
-  location: 'מתחם',
-  special_trimming: 'טילוף מיוחד',
-  notes: 'התנהגותי/ הערות',
-  drugs: 'טשטוש',
-  castration: 'ת.סירוס',
-  deworming: 'תאריך תילוע',
-  source: 'מקור',
-  status: 'סטטוס',
-  friends: 'חברויות',
-  in_treatment: 'בטיפול',
-};
 
-// Service account credentials (env vars)
+/*--------------------------------------------------
+ Service account credentials (env vars)
+---------------------------------------------------*/
 function getCredentials() {
   return {
     client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -110,34 +127,20 @@ function getCredentials() {
   };
 }
 
-// Get current CREDENTIALS (lazily evaluate)
+
+/*--------------------------------------------------
+ Get current CREDENTIALS (lazily evaluate)
+---------------------------------------------------*/
 Object.defineProperty(global, 'CREDENTIALS', {
   get: () => getCredentials(),
   configurable: true
 });
 
-// Initialize configuration from sheet on module load
-let configLoaded = false;
 
-// Cache for reducing API calls
-const apiCache = new Map();
-const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 
-function getCachedData(key) {
-  const cached = apiCache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    console.log(`✓ Using cached data for: ${key}`);
-    return cached.data;
-  }
-  return null;
-}
-
-function setCachedData(key, data) {
-  apiCache.set(key, { data, timestamp: Date.now() });
-}
-let configPromise = null;
-
-// Log credentials (without revealing the full private key)
+/*--------------------------------------------------
+ Log credentials (without revealing the full private key)
+---------------------------------------------------*/
 function logCredentials() {
   const creds = getCredentials();
   console.log('Service Account Email:', creds.client_email);
@@ -148,8 +151,35 @@ function logCredentials() {
   );
 }
 
+/*--------------------------------------------------
+/ --- JWT auth for Google Sheets (replaces useServiceAccountAuth) ---
+----------------------------------------------------*/
+function getSheetsAuth() {
+  if (!sheetsAuth) {
+    const email = CREDENTIALS.client_email;
+    const key = CREDENTIALS.private_key;
+    
+    if (!email || !key) {
+      console.error('❌ Missing Google Sheets credentials!');
+      console.error('Set one of these options:');
+      console.error('  1. Set CONFIGURATION_SHEET_ID env var to load config from Google Sheet');
+      console.error('  2. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SHEETS_PRIVATE_KEY env vars directly');
+      throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_SHEETS_PRIVATE_KEY env vars');
+    }
+    sheetsAuth = new google.auth.JWT(
+      email,
+      null,
+      key,
+      ['https://www.googleapis.com/auth/spreadsheets']
+    );
+  }
+  return sheetsAuth;
+}
+
+
+
 // Cache for loaded documents and Drive client
-const docCache = new Map();
+
 let driveClient = null;
 let sheetsAuth = null;
 
@@ -157,7 +187,7 @@ let sheetsAuth = null;
 async function readConfigurationSheet() {
   await ensureConfigLoaded();
   const configSheetId = process.env.CONFIGURATION_SHEET_ID;
-  console.log('@@@@@@@@@@@Reading configuration sheet with ID:', configSheetId);
+  console.log('>>> Reading configuration sheet with ID:', configSheetId);
   if (!configSheetId) {
     console.warn('⚠️  Missing CONFIGURATION_SHEET_ID env var - will use environment variables directly');
     console.warn('Please set CONFIGURATION_SHEET_ID to enable dynamic configuration loading from Google Sheet');
@@ -184,14 +214,19 @@ async function readConfigurationSheet() {
   }
 }
 
-// Export ensureConfigLoaded function
+/*---------------------------------------------------
+Export ensureConfigLoaded function
+---------------------------------------------------*/
 export async function ensureConfigLoaded() {
   if (configPromise) {
     await configPromise;
   }
 }
 
-// Initialize config on module load
+
+/*---------------------------------------------------
+ Initialize config on module load
+---------------------------------------------------*/
 if (!configLoaded && !configPromise) {
   configPromise = readConfigurationSheet().catch(err => {
     console.error('Failed to load configuration sheet:', err);
@@ -202,30 +237,9 @@ if (!configLoaded && !configPromise) {
   });
 }
 
-// --- JWT auth for Google Sheets (replaces useServiceAccountAuth) ---
-function getSheetsAuth() {
-  if (!sheetsAuth) {
-    const email = CREDENTIALS.client_email;
-    const key = CREDENTIALS.private_key;
-    
-    if (!email || !key) {
-      console.error('❌ Missing Google Sheets credentials!');
-      console.error('Set one of these options:');
-      console.error('  1. Set CONFIGURATION_SHEET_ID env var to load config from Google Sheet');
-      console.error('  2. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SHEETS_PRIVATE_KEY env vars directly');
-      throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_SHEETS_PRIVATE_KEY env vars');
-    }
-    sheetsAuth = new google.auth.JWT(
-      email,
-      null,
-      key,
-      ['https://www.googleapis.com/auth/spreadsheets']
-    );
-  }
-  return sheetsAuth;
-}
-
-// Initialize Google Drive API client
+/*--------------------------------------------------
+  Initialize Google Drive API client
+---------------------------------------------------*/
 function getDriveClient() {
   if (!driveClient) {
     const auth = new google.auth.GoogleAuth({
@@ -237,9 +251,39 @@ function getDriveClient() {
   return driveClient;
 }
 
-// Find spreadsheet in folder
+
+
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+
+
+/*--------------------------------------------------
+  Get Google Spreadsheet document
+---------------------------------------------------*/
+export async function getDoc(spreadsheetId) {
+  try {
+    console.log('>>> Loading document info...');
+    ensureConfigLoaded()
+    const auth = getSheetsAuth();
+    const doc = new GoogleSpreadsheet(spreadsheetId, auth);
+    //await doc.useServiceAccountAuth(CREDENTIALS);    
+    await doc.loadInfo();
+    console.log('<<< Document loaded:', doc.title);
+
+    return doc;
+  } catch (error) {
+      console.error('Error Reading document:', error);
+      throw error;
+  } 
+}
+
+/*-------------------------------------------------
+ Find spreadsheet in folder
+--------------------------------------------------*/
 async function findSpreadsheetInFolder(animalType, animalId) {
-   await ensureConfigLoaded();
+  await ensureConfigLoaded();
   const drive = getDriveClient();
   const folderId = ANIMAL_TREATMENT_SHEETS()[animalType].folderId;
 
@@ -263,49 +307,11 @@ async function findSpreadsheetInFolder(animalType, animalId) {
   }
 }
 
-// Cache for in-flight document loads (promises)
-const docLoadCache = new Map();
 
-// Get or cache spreadsheet document
-async function getDoc(spreadsheetId) {
-  // Check if already loaded
-  if (docCache.has(spreadsheetId)) {
-    console.log(`Using cached document for: ${spreadsheetId}`);
-    return docCache.get(spreadsheetId);
-  }
-  
-  // Check if currently loading
-  if (docLoadCache.has(spreadsheetId)) {
-    console.log(`Waiting for in-flight load of: ${spreadsheetId}`);
-    return await docLoadCache.get(spreadsheetId);
-  }
-  
-  // Start loading and cache the promise
-  const loadPromise = (async () => {
-    try {
-      console.log('Creating new GoogleSpreadsheet instance...');
-      const auth = getSheetsAuth();
-      const doc = new GoogleSpreadsheet(spreadsheetId, auth);
 
-      console.log('Loading document info...');
-      await doc.loadInfo();
-      console.log('Document loaded:', doc.title);
-
-      docCache.set(spreadsheetId, doc);
-      return doc;
-    } catch (error) {
-      console.error('Error in getDoc');
-      throw error;
-    } finally {
-      docLoadCache.delete(spreadsheetId);
-    }
-  })();
-  
-  docLoadCache.set(spreadsheetId, loadPromise);
-  return await loadPromise;
-}
-
-// Find sheet ID by animal name
+/*--------------------------------------------------
+ Find sheet ID by animal name in folder
+---------------------------------------------------*/
 export async function findSheetIdByName(folderId, animalName){
   const drive = getDriveClient();
   try {
@@ -328,27 +334,26 @@ export async function findSheetIdByName(folderId, animalName){
   }
 }
 
-// Get animals from main animals sheet
+/*--------------------------------------------------
+  Get animals from main animals sheet
+---------------------------------------------------*/
 export async function getAnimals(animalType) {
-    if (configPromise) await configPromise;
-    
-    // Check cache first
-    const cacheKey = `animals_${animalType}`;
-    const cached = getCachedData(cacheKey);
-    if (cached) return cached;
+    //if (configPromise) await configPromise;
+    await ensureConfigLoaded();
     
     try {
-    console.log('Starting getAnimals...');
-    console.log('Animals sheet ID:', ANIMAL_TREATMENT_SHEETS()[animalType].sheetId);
+    console.log('>>> getAnimals for type:', animalType);
+    
+    console.log('@@@Animals sheet ID:', ANIMAL_TREATMENT_SHEETS()[animalType].sheetId);
   
     const doc = await getDoc(ANIMAL_TREATMENT_SHEETS()[animalType].sheetId);
-    console.log('Got doc, title:', doc.title);
+    console.log('@@@Got doc, title:', doc.title);
 
     const sheet = doc.sheetsByIndex[0];
     console.log('Got sheet, title:', sheet.title);
 
     const rows = await sheet.getRows();
-    console.log('Got rows, count:', rows.length);
+    console.log('@@@Got rows, count:', rows.length);
     const headers = sheet.headerValues;
     const headerMap = {};
 
@@ -378,7 +383,6 @@ export async function getAnimals(animalType) {
     }));
 
     //console.log('Mapped animals:', animals[1]);
-    setCachedData(cacheKey, animals);
     return animals;
     } catch (error) 
   {
@@ -388,10 +392,13 @@ export async function getAnimals(animalType) {
 
 }
 
-// Get treatments for an animal
+/*--------------------------------------------------
+  Get treatments for an animal
+---------------------------------------------------*/
 export async function getAnimalTreatments(animalType, animalId) {
   try {
-    console.log(`Starting getAnimalTreatments for animalId: ${animalId}`);
+    console.log(`>>> getAnimalTreatments for animalId: ${animalId}`);
+    await ensureConfigLoaded();
     const spreadsheetId = await findSpreadsheetInFolder(animalType, animalId);
     if (!spreadsheetId) {
       return [];
@@ -431,10 +438,13 @@ export async function getAnimalTreatments(animalType, animalId) {
   }
 }
 
-// Get animals from a sheet by ID
+/*--------------------------------------------------
+  Get animals from a sheet by ID
+---------------------------------------------------*/
 export async function getAnimalsFromSheet(spreadsheetId) {
   try {
-    console.log('Starting getAnimalsFromSheet...');
+    console.log('>>> getAnimalsFromSheet...');
+    await ensureConfigLoaded();
     if (!spreadsheetId) return [];
     console.log(`Loading animals from sheetId: ${spreadsheetId}`);
     const doc = await getDoc(spreadsheetId);
@@ -479,12 +489,14 @@ export async function getAnimalsFromSheet(spreadsheetId) {
   }
 }
 
-// Get protocols from sheet
+/*--------------------------------------------------
+  Get protocols from sheet
+---------------------------------------------------*/
 export async function getProtocolsFromSheet(spreadsheetId, animalType) {
   try {
     if (!spreadsheetId) return [];
-    console.log(`Loading protocols from sheetId: ${spreadsheetId}`);
-    console.log(`animal type is: ${animalType}`);
+    await ensureConfigLoaded();
+    console.log(`>>> Loading protocols from sheetId: ${spreadsheetId}, animalType: ${animalType}`);
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
@@ -551,8 +563,12 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
   }
 }
 
-// Add treatments at the top of sheet
+/*--------------------------------------------------
+  Add treatments at the top of sheet
+---------------------------------------------------*/
 export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
+  await ensureConfigLoaded();
+  console.log(`>>> addTreatmentAtTop for spreadsheetId: ${spreadsheetId}`);
   const rowsToAdd = Array.isArray(rowData) ? rowData : [rowData];
   try {
     if (!spreadsheetId) throw new Error('spreadsheetId is required');
@@ -739,20 +755,35 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
   }
 }
 
-// Helper to parse date in DD/MM/YYYY format
+/*--------------------------------------------------
+  Helper to parse date in DD/MM/YYYY format
+---------------------------------------------------*/
 function parseDMY(str) {
   if (!str) return 0;
-  const parts = str.toString().split('/');
-  if (parts.length !== 3) return 0;
-  const [day, month, year] = parts.map(Number);
-  if (isNaN(day) || isNaN(month) || isNaN(year)) return 0;
-  return (year * 10000) + (month * 100) + day;
+    if (str.includes('T')) {
+    str = str.split('T')[0];
+  }
+  const parts_slash = str.toString().split('/');
+  const parts_dash = str.toString().split('-');
+   if (parts_slash.length === 3){
+    const [day, month, year] = parts_slash.map(Number);  
+    return  (year * 10000) + (month * 100) + day;
+  }
+  if (parts_dash.length === 3){
+    const [year, month, day] = parts_dash.map(Number);  
+    return  (year * 10000) + (month * 100) + day;
+  }
+  console.log('Date string not in expected format:', str);
+  return 0;
 }
 
-// Delete animal treatments between dates
+/*--------------------------------------------------
+  Delete animal treatments between dates
+---------------------------------------------------*/
 export async function deleteAnimalTreatmentsBetweenDates(animalType, animalName, startDateStr, endDateStr) {
   try {
-    console.log(`Starting updateAnimalTreatmentsInFile for animal: ${animalName} of type: ${animalType}`);
+    await ensureConfigLoaded();
+    console.log(`>>> deleteAnimalTreatmentsBetweenDates for animal: ${animalName} of type: ${animalType}`);
     const spreadsheetId = await findSheetIdByName(ANIMAL_TREATMENT_SHEETS()[animalType].folderId, animalName);
     if (!spreadsheetId) throw new Error('Could not find treatment sheet for animal: ' + animalName);  
     const doc = await getDoc(spreadsheetId);
@@ -786,10 +817,13 @@ export async function deleteAnimalTreatmentsBetweenDates(animalType, animalName,
   }   
 }
 
-// Sort animal treatments by date descending
+/*-------------------------------------------------- 
+  Sort animal treatments by date descending
+---------------------------------------------------*/
 export async function sortAnimalTreatmentsByDateDescending(spreadsheetId){
   try {
-    console.log(`Starting sortAnimalTreatmentsByDateDescending for sheetID: ${spreadsheetId}`);
+    await ensureConfigLoaded();
+    console.log(`>>> sortAnimalTreatmentsByDateDescending for sheetID: ${spreadsheetId}`);
 
     if (!spreadsheetId) throw new Error('Could not find treatment sheet for animal: ' );  
     const doc = await getDoc(spreadsheetId);
@@ -830,30 +864,30 @@ export async function sortAnimalTreatmentsByDateDescending(spreadsheetId){
   }
 }
 
-// Get caregiver name from sheet by email
+/*-------------------------------------------------- 
+  Get caregiver name from sheet by email
+---------------------------------------------------*/
 export async function getCaregiverNameFromSheet(email) {
   try {
+    console.log('>>> Retreive Cargiver name for email:', email);
     await ensureConfigLoaded();
     const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
-    console.log(`#$#$Starting getCaregiverNameFromSheet for sheetID: ${spreadsheetId}`);  
     if (!spreadsheetId) throw new Error('Could not find caregiver sheet' );  
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0]; 
     await sheet.loadHeaderRow();
     const headers = sheet.headerValues;
-    console.log('Headers from sheet:', headers);
     const caregiverColIndex = headers.findIndex(h => h && h.trim() === 'מטפל');
     const emailColIndex = headers.findIndex(h => h && h.trim().toLowerCase() === 'מייל');
-    console.log('Caregiver column index:', caregiverColIndex);
-    console.log('Email column index:', emailColIndex);
-    if (caregiverColIndex === -1) {
+
+     if (caregiverColIndex === -1) {
       throw new Error(`Could not find 'מטפל' header in sheet ${spreadsheetId}`);
     }
     const rows = await sheet.getRows();
     for (const row of rows) {
       const caregiverName = row._rawData?.[caregiverColIndex];
       if (email === row._rawData?.[emailColIndex]) {
-        console.log(`Found caregiver name: ${caregiverName} for email: ${email}`);
+        console.log(`<<< Found caregiver name: ${caregiverName} for email: ${email}`);
         return caregiverName;
       }
     }
@@ -864,12 +898,15 @@ export async function getCaregiverNameFromSheet(email) {
   }
 }
 
-// Get all caregiver names
+/*--------------------------------------------------  
+  Get all caregivers from sheet
+---------------------------------------------------*/ 
 export async function getAllCaregivers() {
   try {
-    const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
-    if (!spreadsheetId) throw new Error('Could not find caregiver sheet');
-    const doc = await getDoc(spreadsheetId);
+    console.log('>>> Retreive all caregivers from sheet');
+    await ensureConfigLoaded();
+    if (!process.env.CAREGIVERS_SHEET_ID) throw new Error('Could not find caregiver sheet');
+    const doc = await getDoc(process.env.CAREGIVERS_SHEET_ID);
     const sheet = doc.sheetsByIndex[0];
     await sheet.loadHeaderRow();
     const headers = sheet.headerValues;
@@ -893,13 +930,15 @@ export async function getAllCaregivers() {
   }
 }
 
-// Get animals for caregiver with treatments today
+/*-------------------------------------------------- 
+  Get animals for caregiver with treatments today
+---------------------------------------------------*/
 export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) {
   try {
-    console.log(`Starting getAnimalsForCaregiverWithTreatementsToday for caregiver: ${caregiverName}`);
+    await ensureConfigLoaded();
+    console.log(`>>> getAnimalsForCaregiverWithTreatementsToday for caregiver: ${caregiverName}`);
     const todayDate = new Date(); 
     const todayStr = `${todayDate.getDate()}/${todayDate.getMonth() + 1}/${todayDate.getFullYear()}`;
-    console.log(`-----------------Today's date string: ${todayStr}`);
     const animalsWithTodayTreatments = [];
     // loop through all animal types
     const sheets = ANIMAL_TREATMENT_SHEETS();
@@ -939,68 +978,40 @@ export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) 
 // Check if sheet has treatment today
 // Cache for in-flight hasTreatmentToday calls
 const treatmentCheckCache = new Map();
-
+/*-------------------------------------------------- 
+  Check if sheet has treatment today
+---------------------------------------------------*/
 export async function hasTreatmentToday(sheetId, todayStr) {
-  const cacheKey = `treatment_${sheetId}_${todayStr}`;
-  
-  // Check completed cache first
-  const cached = getCachedData(cacheKey);
-  if (cached) {
-    console.log(`Using cached treatment check for ${sheetId} on ${todayStr}`);
-    return cached;
+  console.log(`>>> hasTreatmentToday for sheetID: ${sheetId} and date: ${todayStr}`);  
+  await ensureConfigLoaded(); 
+  let hasTreatment = false;
+  let treatmentTimes = [];
+  if (!sheetId) throw new Error('sheetId is required');  
+  const doc = await getDoc(sheetId);  
+  const sheet = doc.sheetsByIndex[0];  
+  const rows = await sheet.getRows(); 
+    
+  console.log(`Got ${rows.length} rows for treatment check`);
+    
+  // Check if we have any rows
+  if (rows.length === 0) {
+    const result = { hasTreatment: false, treatmentTimes: [] };
+    return result;
+  }
+    
+  // Build header map from the sheet's header values
+  const headerMap = {};
+  if (sheet.headerValues) {
+    sheet.headerValues.forEach((header, index) => {
+      if (header) headerMap[header.trim()] = index;
+    });
   }
   
-  // Check if already in progress
-  if (treatmentCheckCache.has(cacheKey)) {
-    console.log(`Waiting for in-flight treatment check for ${sheetId} on ${todayStr}`);
-    return await treatmentCheckCache.get(cacheKey);
-  }
-  
-  // Start the check and cache the promise
-  const checkPromise = (async () => {
-    try {
-      return await _hasTreatmentTodayImpl(sheetId, todayStr, cacheKey);
-    } finally {
-      treatmentCheckCache.delete(cacheKey);
-    }
-  })();
-  
-  treatmentCheckCache.set(cacheKey, checkPromise);
-  return await checkPromise;
-}
-
-async function _hasTreatmentTodayImpl(sheetId, todayStr, cacheKey) {
+  // Column indices (fallback if header mapping doesn't work)
+  const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
+  const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
+  const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
   try {  
-    let hasTreatment = false;
-    let treatmentTimes = [];
-    console.log(`Starting hasTreatmentToday for sheetID: ${sheetId} and date: ${todayStr}`);  
-    if (!sheetId) throw new Error('sheetId is required');  
-    const doc = await getDoc(sheetId);  
-    const sheet = doc.sheetsByIndex[0];  
-    const rows = await sheet.getRows(); 
-    
-    console.log(`Got ${rows.length} rows for treatment check`);
-    
-    // Check if we have any rows
-    if (rows.length === 0) {
-      const result = { hasTreatment: false, treatmentTimes: [] };
-      setCachedData(cacheKey, result);
-      return result;
-    }
-    
-    // Build header map from the sheet's header values
-    const headerMap = {};
-    if (sheet.headerValues) {
-      sheet.headerValues.forEach((header, index) => {
-        if (header) headerMap[header.trim()] = index;
-      });
-    }
-    
-    // Column indices (fallback if header mapping doesn't work)
-    const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
-    const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
-    const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
-    
     for(const row of rows) {
       const stringDate = row._rawData?.[0];
       if(!stringDate || !todayStr) continue;
@@ -1008,35 +1019,31 @@ async function _hasTreatmentTodayImpl(sheetId, todayStr, cacheKey) {
       const parsedRowDate = parseDMY(stringDate);
       const parsedTodayDate = parseDMY(todayStr);
       
-      // Debug: log first few comparisons
-      if(rows.indexOf(row) < 3) {
-        console.log(`Comparing row date "${stringDate}" (parsed: ${parsedRowDate}) with today "${todayStr}" (parsed: ${parsedTodayDate})`);
-      }
-      
       if(parsedRowDate === parsedTodayDate) {
         console.log(`✓ Found treatment for today: ${todayStr} in row date: ${stringDate}`);
         hasTreatment = true;
+        console.log('Row raw data:', row._rawData);
         
         const morningValue = row._rawData?.[morningCol];
         const noonValue = row._rawData?.[noonCol];
         const eveningValue = row._rawData?.[eveningCol];
         
-        if(morningValue === true || morningValue === 'TRUE' || morningValue === 'true') {
+        if(morningValue === false || morningValue === 'FALSE') {
           treatmentTimes.push('morning');
         }
-        if(noonValue === true || noonValue === 'TRUE' || noonValue === 'true') {
+        if(noonValue === false || noonValue === 'FALSE') {
           treatmentTimes.push('noon');
         }
-        if(eveningValue === true || eveningValue === 'TRUE' || eveningValue === 'true') {
+        if(eveningValue === false || eveningValue === 'FALSE') {
           treatmentTimes.push('evening');
         }
         
-        // If all time-specific treatments are false, it's a general treatment
-        const isMorningFalse = morningValue === 'FALSE' || morningValue === 'false' || morningValue === false;
-        const isNoonFalse = noonValue === 'FALSE' || noonValue === 'false' || noonValue === false;
-        const isEveningFalse = eveningValue === 'FALSE' || eveningValue === 'false' || eveningValue === false;
+        // If all time-specific treatments are blank, it's a general treatment
+        const isMorningBlank = morningValue === '';
+        const isNoonBlank = noonValue === '' ;
+        const isEveningBlank = eveningValue === '';
         
-        if(isMorningFalse && isNoonFalse && isEveningFalse) {
+        if(isMorningBlank && isNoonBlank && isEveningBlank) {
           treatmentTimes.push('general');
         }
         
@@ -1046,20 +1053,20 @@ async function _hasTreatmentTodayImpl(sheetId, todayStr, cacheKey) {
         }
       }
     }
-    const result = { hasTreatment, treatmentTimes };
-    setCachedData(cacheKey, result);
-    return result;
+    return { hasTreatment, treatmentTimes };
   } catch (error) {
     console.error('Error in hasTreatmentToday:', error);
     return { hasTreatment: false, treatmentTimes: [] };
   }
 }
 
-// Update animal in list
+/*--------------------------------------------------
+  Update animal in main list
+---------------------------------------------------*/
 export async function updateAnimalInList(animalType, animalName, updateData = {}) {
   try {
-    console.log(`Starting updateAnimalInList for animal: ${animalName} of type: ${animalType}`);
-    console.log('Update data:', updateData);
+    await ensureConfigLoaded();
+    console.log(`>> updateAnimalInList for animal: ${animalName} of type: ${animalType}, 'Update data:', updateData`);
 
     const spreadsheetId = ANIMAL_TREATMENT_SHEETS()[animalType]?.sheetId;
     if (!spreadsheetId) throw new Error('ANIMAL_TREATMENT_SHEETS()[animalType]?.sheetId is required');
@@ -1132,14 +1139,14 @@ export async function updateAnimalInList(animalType, animalName, updateData = {}
   }
 }
 
-/*-----------------------
+/*-----------------------------------------------
   function to collect each file that was edited in the last two weeks by folder id and check if each file has treatments today
-  -----------------------*/
-  
+  ----------------------------------------------*/
 export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId) {
   try {
+    await ensureConfigLoaded();
+    console.log('>>> getRecentlyEditedFilesInFolderWithTreatmentsToday...');
     const filesWithTreatmentsToday = [];
-    console.log(`Starting getRecentlyEditedFilesInFolder for folderID: ${folderId}`);  
     if (!folderId) throw new Error('folderId is required'); 
     const drive = getDriveClient();
     const twoWeeksAgo = new Date();
@@ -1162,7 +1169,6 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       if (hasTreatment) {
-        console.log(`File ${file.name} has treatment today.`);
         filesWithTreatmentsToday.push(file.name, treatmentTimes);
       }
     }

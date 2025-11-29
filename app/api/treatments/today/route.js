@@ -1,5 +1,11 @@
 import { time } from 'console';
 import { getRecentlyEditedFilesInFolderWithTreatmentsToday, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded} from '../../../../src/lib/sheets.js';
+// app/api/treatments/today/route.ts
+export const dynamic = 'force-dynamic';      // don't pre-render at build
+export const fetchCache = 'force-no-store';  // don't cache in the static cache
+
+// optionally:
+export const revalidate = 0;                 // disable ISR if present
 
 export async function GET() {
   try {
@@ -21,6 +27,9 @@ export async function GET() {
       try {
         const result = await getRecentlyEditedFilesInFolderWithTreatmentsToday(ANIMAL_TREATMENT_SHEETS()[animalType].folderId);
         console.log (`Received ${result.length} entries for ${animalType}`);
+        if(result.length > 0) {
+          //console.log('###### Entries:', result);
+        }
         // The function returns an array like [fileName1, treatmentTimes1, fileName2, treatmentTimes2, ...]
         // Let's process this data properly
         for (let i = 0; i < result.length; i += 2) {
