@@ -27,7 +27,7 @@ interface DailyScheduleProps {
 
 interface ConfirmDialog {
   open: boolean;
-  treatmentId: number | null;
+  treatmentKey: string | null;
   isCompleted: boolean;
 }
 
@@ -91,10 +91,14 @@ const generateScheduleDays = () => {
 export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyScheduleProps) {
   const [scheduleDays] = useState(generateScheduleDays());
   const [selectedDayIndex, setSelectedDayIndex] = useState(2); // Index 2 is today (middle of the array)
-  const [completedTreatments, setCompletedTreatments] = useState<Set<number>>(new Set([1, 3]));
-  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>({ 
+  const [completedTreatments, setCompletedTreatments] = useState<Set<string>>(new Set());
+  const [confirmDialog, setConfirmDialog] = useState<{ 
+    open: boolean; 
+    treatmentKey: string | null; 
+    isCompleted: boolean 
+  }>({ 
     open: false, 
-    treatmentId: null, 
+    treatmentKey: null, 
     isCompleted: false 
   });
   const [treatments, setTreatments] = useState<Treatment[]>([]);
@@ -179,6 +183,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       }, {} as Record<string, Treatment & { timeSlots: string[] }>);
     
     // Then organize by time section - add to ALL sections where the treatment appears
+    // Create unique IDs for each time section instance
     return Object.values(byAnimalCase).reduce((acc, treatment) => {
       // Add treatment to each time section it belongs to
       treatment.timeSlots.forEach(timeSlot => {
@@ -199,7 +204,13 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         }
         
         if (!acc[section]) acc[section] = [];
-        acc[section].push(treatment);
+        // Create a unique treatment instance for this specific time slot
+        const uniqueTreatment = {
+          ...treatment,
+          timeSlot: timeSlot, // Set the correct timeSlot for this instance
+          id: Math.abs(hashCode(`${treatment.animalName}_${treatment.medicalCase}_${timeSlot}`))
+        };
+        acc[section].push(uniqueTreatment);
       });
       
       return acc;
@@ -221,13 +232,15 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     }
   };
 
-  const handleCheckboxClick = (e: React.MouseEvent, treatmentId: number) => {
+  const handleCheckboxClick = (e: React.MouseEvent, treatment: Treatment) => {
     e.stopPropagation();
     
-    const isCompleted = completedTreatments.has(treatmentId);
+    // Create unique key combining animal name, case, and time slot
+    const treatmentKey = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
+    const isCompleted = completedTreatments.has(treatmentKey);
     setConfirmDialog({ 
       open: true, 
-      treatmentId, 
+      treatmentKey, 
       isCompleted 
     });
   };
@@ -259,30 +272,31 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   };
 
   const handleConfirmToggle = () => {
-    if (!confirmDialog.treatmentId) return;
+    if (!confirmDialog.treatmentKey) return;
     
     const newCompletedTreatments = new Set(completedTreatments);
     
     if (confirmDialog.isCompleted) {
       // Unmarking as completed
-      newCompletedTreatments.delete(confirmDialog.treatmentId);
+      newCompletedTreatments.delete(confirmDialog.treatmentKey);
       toast.success("הטיפול סומן כממתין");
     } else {
       // Marking as completed
-      newCompletedTreatments.add(confirmDialog.treatmentId);
+      newCompletedTreatments.add(confirmDialog.treatmentKey);
       toast.success("הטיפול סומן כבוצע");
     }
     
     setCompletedTreatments(newCompletedTreatments);
-    setConfirmDialog({ open: false, treatmentId: null, isCompleted: false });
+    setConfirmDialog({ open: false, treatmentKey: null, isCompleted: false });
   };
 
   const handleCancelToggle = () => {
-    setConfirmDialog({ open: false, treatmentId: null, isCompleted: false });
+    setConfirmDialog({ open: false, treatmentKey: null, isCompleted: false });
   };
 
   const renderTreatment = (treatment: Treatment) => {
-    const isCompleted = completedTreatments.has(treatment.id);
+    const treatmentKey = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
+    const isCompleted = completedTreatments.has(treatmentKey);
     
     return (
       <Card
@@ -297,7 +311,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
             {/* Checkbox */}
             <div 
               className="flex-shrink-0"
-              onClick={(e) => handleCheckboxClick(e, treatment.id)}
+              onClick={(e) => handleCheckboxClick(e, treatment)}
             >
               <Checkbox
                 checked={isCompleted}
@@ -438,7 +452,6 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                             <Icon className="w-6 h-6" style={{ color: '#A67C52' }} />
                             <div>
                               <h3 className="text-right">{section.title}</h3>
-                              <p className="text-sm text-muted-foreground">{section.timeRange}</p>
                             </div>
                             <Badge variant="outline" className="mr-auto">
                               {sectionTreatments?.length || 0} טיפולים
@@ -482,13 +495,19 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                     <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
                       <div className="text-center">
                         <div className="text-2xl font-bold text-green-600">
-                          {overviewTreatments.filter(t => completedTreatments.has(t.id)).length}
+                          {overviewTreatments.filter(t => {
+                            const key = `${t.animalName}_${t.medicalCase}_${t.timeSlot}`;
+                            return completedTreatments.has(key);
+                          }).length}
                         </div>
                         <div className="text-sm text-gray-600">בוצעו</div>
                       </div>
                       <div className="text-center">
                         <div className="text-2xl font-bold text-orange-600">
-                          {overviewTreatments.filter(t => !completedTreatments.has(t.id)).length}
+                          {overviewTreatments.filter(t => {
+                            const key = `${t.animalName}_${t.medicalCase}_${t.timeSlot}`;
+                            return !completedTreatments.has(key);
+                          }).length}
                         </div>
                         <div className="text-sm text-gray-600">ממתינים</div>
                       </div>
@@ -522,18 +541,21 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                               </Badge>
                             </div>
                             <div className="space-y-1">
-                              {animalTreatments.map(treatment => (
-                                <div key={treatment.id} className="flex items-center justify-between text-sm">
-                                  <span>{treatment.medicalCase}</span>
-                                  <div className="flex items-center gap-1">
-                                    {completedTreatments.has(treatment.id) ? (
-                                      <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                    ) : (
-                                      <Clock className="w-4 h-4 text-orange-500" />
-                                    )}
+                              {animalTreatments.map(treatment => {
+                                const treatmentKey = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
+                                return (
+                                  <div key={treatment.id} className="flex items-center justify-between text-sm">
+                                    <span>{treatment.medicalCase}</span>
+                                    <div className="flex items-center gap-1">
+                                      {completedTreatments.has(treatmentKey) ? (
+                                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                      ) : (
+                                        <Clock className="w-4 h-4 text-orange-500" />
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         ))

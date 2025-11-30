@@ -4,8 +4,9 @@ import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Calendar, Pill, AlertCircle } from "lucide-react";
+import { Calendar, Pill, AlertCircle, Plus } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { AddAnimal } from "./AddAnimal";
 import React from "react";
 
 
@@ -60,6 +61,7 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
   const [caregiverName, setCaregiverName] = useState<string>("");
   const [uncheckedTreatments] = useState<Animal[]>([]);
   const [animalsForTodayList, setAnimalsForTodayList] = useState<Animal[]>([]);
+  const [addAnimalOpen, setAddAnimalOpen] = useState(false);
   const lastEmailRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -198,16 +200,37 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
       </div>
 
       <div className="flex-1 flex items-center justify-center min-h-[400px]">
-        <Button
-          onClick={onAddTreatment}
-          className="px-8 py-6 rounded-2xl text-white transition-all hover:scale-105 hover:shadow-lg"
-          style={{ 
-            backgroundColor: '#A67C52',
-          }}
-        >
-          <span className="text-xl">הוסף טיפול חדש</span>
-        </Button>
+        <div className="flex gap-4">
+          <Button
+            onClick={onAddTreatment}
+            className="px-8 py-6 rounded-2xl text-white transition-all hover:scale-105 hover:shadow-lg"
+            style={{ 
+              backgroundColor: '#A67C52',
+            }}
+          >
+            <span className="text-xl">הוסף טיפול חדש</span>
+          </Button>
+          
+          <Button
+            onClick={() => setAddAnimalOpen(true)}
+            className="px-8 py-6 rounded-2xl text-white transition-all hover:scale-105 hover:shadow-lg"
+            style={{ 
+              backgroundColor: '#6B9080',
+            }}
+          >
+            <Plus className="w-6 h-6 ml-2" />
+            <span className="text-xl">הוסף חיה חדשה</span>
+          </Button>
+        </div>
       </div>
+
+      <AddAnimal 
+        open={addAnimalOpen} 
+        onOpenChange={setAddAnimalOpen}
+        onSuccess={() => {
+          // Optionally refresh animals list
+        }}
+      />
     </div>
   );
 }

@@ -192,7 +192,10 @@ function getSheetsAuth() {
       email,
       null,
       key,
-      ['https://www.googleapis.com/auth/spreadsheets']
+      [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+      ]
     );
   }
   return sheetsAuth;
@@ -266,7 +269,7 @@ function getDriveClient() {
   if (!driveClient) {
     const auth = new google.auth.GoogleAuth({
       credentials: CREDENTIALS,
-      scopes: ['https://www.googleapis.com/auth/drive.readonly']
+      scopes: ['https://www.googleapis.com/auth/drive']
     });
     driveClient = google.drive({ version: 'v3', auth });
   }
@@ -1204,5 +1207,164 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
   } catch (error) {
     console.error('Error in getRecentlyEditedFilesInFolder:', error);
     return [];
+  }
+}
+/*--------------------------------------------------
+  Add animal to main list (alphabetically sorted)
+---------------------------------------------------*/
+export async function addAnimalToList(animalType, animalData) {
+  try {
+    await ensureConfigLoaded();
+    console.log('>>> addAnimalToList for animalType:', animalType, animalData);
+    const spreadsheetId = ANIMAL_TREATMENT_SHEETS()[animalType].sheetId;
+    
+    if (!spreadsheetId) {
+      throw new Error('No sheet ID found for animal type: ' + animalType);
+    }
+
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];
+    
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    
+    // Create new row data
+    const newRowData = {};
+    
+    // Map fields to Hebrew headers
+    Object.entries(FIELD_TO_HEADER).forEach(([field, hebrewHeader]) => {
+      if (animalData[field] !== undefined) {
+        newRowData[hebrewHeader] = animalData[field];
+      }
+    });
+    
+    // Add the new row
+    const newRow = await sheet.addRow(newRowData);
+    
+    // Get all rows including the new one
+    const allRows = await sheet.getRows();
+    
+    // Sort alphabetically by name (??)
+    const nameColIndex = headers.findIndex(h => h && h.trim() === '??');
+    if (nameColIndex !== -1) {
+      allRows.sort((a, b) => {
+        const nameA = (a._rawData[nameColIndex] || '').toString().trim().toLowerCase();
+        const nameB = (b._rawData[nameColIndex] || '').toString().trim().toLowerCase();
+        return nameA.localeCompare(nameB, 'he');
+      });
+      
+      // Update row positions
+      const auth = getSheetsAuth();
+      const sheetsApi = google.sheets({ version: 'v4', auth });
+      
+      // Clear and rewrite the sheet
+      await sheetsApi.spreadsheets.values.clear({
+        spreadsheetId,
+        range: sheet.title + '!A2:Z' + (allRows.length + 1)
+      });
+      
+      await sheetsApi.spreadsheets.values.update({
+        spreadsheetId,
+        range: sheet.title + '!A2:Z' + (allRows.length + 1),
+        valueInputOption: 'RAW',
+        resource: {
+          values: allRows.map(row => row._rawData)
+        }
+      });
+    }
+    
+    console.log('Animal ' + animalData.name + ' added successfully to ' + animalType + ' sheet');
+    return newRow;
+    
+  } catch (error) {
+    console.error('Error in addAnimalToList:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Create a new treatment sheet for an animal
+---------------------------------------------------*/
+export async function createAnimalTreatmentSheet(animalType, sheetName) {
+  try {
+    await ensureConfigLoaded();
+    console.log('>>> createAnimalTreatmentSheet for ' + animalType + ': ' + sheetName);
+
+    const folderConfig = ANIMAL_TREATMENT_SHEETS()[animalType];
+    if (!folderConfig) {
+      throw new Error('Unknown animal type: ' + animalType);
+    }
+
+    const folderId = folderConfig.folderId;
+    if (!folderId) {
+      throw new Error('No folder ID found for animal type: ' + animalType);
+    }
+
+    // 1) Auth
+    const auth = getSheetsAuth();
+    const sheetsApi = google.sheets({ version: 'v4', auth });
+    const drive = getDriveClient();  // uses same credentials/scopes
+
+    // 2) Create the file directly in the folder using Drive
+    const createFileRes = await drive.files.create({
+      requestBody: {
+        name: sheetName,
+        mimeType: 'application/vnd.google-apps.spreadsheet',
+        parents: [folderId],  // <-- create *inside* this folder
+      },
+      fields: 'id, name, parents'
+    });
+
+    const newSpreadsheetId = createFileRes.data.id;
+    console.log('Created spreadsheet in folder. ID:', newSpreadsheetId, 'parents:', createFileRes.data.parents);
+
+    // 3) Add headers to the new sheet
+    const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'מקרה', 'הערות'];
+
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId: newSpreadsheetId,
+      range: 'Sheet1!A1:L1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [headers],
+      },
+    });
+
+    // 4) Format the header row
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId: newSpreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            repeatCell: {
+              range: {
+                sheetId: 0,
+                startRowIndex: 0,
+                endRowIndex: 1,
+                startColumnIndex: 0,
+                endColumnIndex: headers.length,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: { red: 0.9, green: 0.9, blue: 0.9 },
+                  textFormat: { bold: true },
+                },
+              },
+              fields: 'userEnteredFormat(backgroundColor,textFormat)',
+            },
+          },
+        ],
+      },
+    });
+
+    console.log('Treatment sheet created successfully: ' + sheetName + ' (ID: ' + newSpreadsheetId + ')');
+    return newSpreadsheetId;
+
+  } catch (error) {
+    console.error(
+      'Error in createAnimalTreatmentSheet:',
+      error.response?.data || error.message || error
+    );
+    throw error;
   }
 }
