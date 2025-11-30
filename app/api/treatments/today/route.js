@@ -33,21 +33,38 @@ export async function GET() {
         // The function returns an array like [fileName1, treatmentTimes1, fileName2, treatmentTimes2, ...]
         // Let's process this data properly
         for (let i = 0; i < result.length; i += 2) {
-          const animalName = result[i];
+          const fileName = result[i];
           const treatmentTimes = result[i + 1] || [];
           
-          if (animalName && treatmentTimes.length > 0) {
+          if (fileName && treatmentTimes.length > 0) {
+            // Extract animal name from filename
+            // Format: "עותק של <name> <id>" or just "<name> <id>" or "<name>.xlsx"
+            let animalName = fileName
+              .replace('.xlsx', '')
+              .replace('.xls', '')
+              .replace(/^עותק של\s+/i, '') // Remove "עותק של " prefix
+              .trim();
+            
+            // Remove the ID number at the end if present (e.g., "939000007662875")
+            animalName = animalName.replace(/\s+\d{15}$/, '').trim();
+            
+            // If still no name extracted, use the filename as-is
+            if (!animalName) {
+              animalName = fileName.replace('.xlsx', '').replace('.xls', '');
+            }
+            
             // Create a treatment entry for each time slot
-            treatmentTimes.forEach(timeSlot => {
+            treatmentTimes.forEach(timeInfo => {
               const treatment = {
-                id: `${animalType}_${animalName}_${timeSlot}_${Date.now()}_${Math.random()}`,
-                animalName: animalName.replace('.xlsx', '').replace('.xls', ''), // Remove file extension
+                id: `${animalType}_${fileName}_${timeInfo.timeSlot}_${Date.now()}_${Math.random()}`,
+                animalName: animalName,
                 animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
                 animalTypeKey: animalType,
-                animalImage: `/animal-avatars/${animalName.toLowerCase().replace('.xlsx', '').replace('.xls', '')}.jpg`,
-                treatmentType: geteTreatmentTypeByTimeSlot(timeSlot),
-                time: getTimeBySlot(timeSlot),
-                timeSlot: timeSlot, // morning, noon, evening, general
+                animalImage: `/animal-avatars/${animalName.toLowerCase()}.jpg`,
+                medicalCase: timeInfo.medicalCase || 'ללא תיאור',
+                treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
+                time: getTimeBySlot(timeInfo.timeSlot),
+                timeSlot: timeInfo.timeSlot, // morning, noon, evening, general
                 caregiver: "נקבע לפי זמינות",
                 emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji
               };

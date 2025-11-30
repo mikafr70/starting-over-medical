@@ -14,13 +14,14 @@ interface Treatment {
   animalType: string;
   animalImage: string;
   treatmentType: string;
+  medicalCase: string;
   time: string;
   timeSlot?: string; // morning, noon, evening, general
   caregiver: string;
 }
 
 interface DailyScheduleProps {
-  onSelectAnimal: (animalId: number) => void;
+  onSelectAnimal: (animalName: string, animalType: string) => void;
   onAddTreatment: () => void;
 }
 
@@ -34,7 +35,6 @@ const timeSections = [
   {
     id: "morning",
     title: "בוקר",
-    timeRange: "06:00 - 12:00",
     icon: Sunrise,
     headerBgColor: "#FFF2CC",
     bgColor: "#FFFBF0"
@@ -42,7 +42,6 @@ const timeSections = [
   {
     id: "afternoon", 
     title: "צהריים",
-    timeRange: "12:00 - 18:00",
     icon: Sun,
     headerBgColor: "#FFE6CC",
     bgColor: "#FFF8F0"
@@ -50,7 +49,6 @@ const timeSections = [
   {
     id: "evening",
     title: "ערב",
-    timeRange: "18:00 - 00:00", 
     icon: Moon,
     headerBgColor: "#E6F3FF",
     bgColor: "#F0F8FF"
@@ -102,6 +100,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const selectedDay = scheduleDays[selectedDayIndex];
 
@@ -124,6 +123,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
             animalType: treatment.animalType,
             animalImage: treatment.animalImage,
             treatmentType: treatment.treatmentType,
+            medicalCase: treatment.medicalCase || 'ללא תיאור',
             time: treatment.time,
             timeSlot: treatment.timeSlot,
             caregiver: treatment.caregiver
@@ -157,15 +157,34 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     return hash;
   };
 
-  // Group treatments by time section, filtering out general treatments for the left side
-  const groupedTreatments = treatments
-    .filter(treatment => treatment.timeSlot !== 'general') // Only show scheduled treatments on left
-    .reduce((acc, treatment) => {
-      let section: string;
-      
-      // Use timeSlot if available, otherwise fall back to time-based grouping
-      if (treatment.timeSlot) {
-        switch (treatment.timeSlot) {
+  // Group treatments by animal+case combination, then by time section
+  const groupedTreatments = (() => {
+    // First, group by animal name + medical case to combine multiple time slots
+    const byAnimalCase = treatments
+      .filter(treatment => treatment.timeSlot !== 'general')
+      .reduce((acc, treatment) => {
+        const key = `${treatment.animalName}_${treatment.medicalCase}`;
+        if (!acc[key]) {
+          acc[key] = {
+            ...treatment,
+            timeSlots: [treatment.timeSlot]
+          };
+        } else {
+          // Add this time slot to the existing entry
+          if (!acc[key].timeSlots.includes(treatment.timeSlot)) {
+            acc[key].timeSlots.push(treatment.timeSlot);
+          }
+        }
+        return acc;
+      }, {} as Record<string, Treatment & { timeSlots: string[] }>);
+    
+    // Then organize by time section - add to ALL sections where the treatment appears
+    return Object.values(byAnimalCase).reduce((acc, treatment) => {
+      // Add treatment to each time section it belongs to
+      treatment.timeSlots.forEach(timeSlot => {
+        let section: string;
+        
+        switch (timeSlot) {
           case 'morning':
             section = "morning";
             break;
@@ -176,24 +195,16 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
             section = "evening";
             break;
           default:
-            section = "morning"; // fallback
+            section = "morning";
         }
-      } else {
-        // Fallback to hour-based grouping
-        const hour = parseInt(treatment.time.split(':')[0]);
-        if (hour >= 6 && hour < 12) {
-          section = "morning";
-        } else if (hour >= 12 && hour < 18) {
-          section = "afternoon"; 
-        } else {
-          section = "evening";
-        }
-      }
+        
+        if (!acc[section]) acc[section] = [];
+        acc[section].push(treatment);
+      });
       
-      if (!acc[section]) acc[section] = [];
-      acc[section].push(treatment);
       return acc;
-    }, {} as Record<string, Treatment[]>);
+    }, {} as Record<string, (Treatment & { timeSlots: string[] })[]>);
+  })();
 
   // Get all treatments for the overview (right side) - includes general treatments
   const overviewTreatments = treatments;
@@ -212,12 +223,39 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
   const handleCheckboxClick = (e: React.MouseEvent, treatmentId: number) => {
     e.stopPropagation();
+    
     const isCompleted = completedTreatments.has(treatmentId);
     setConfirmDialog({ 
       open: true, 
       treatmentId, 
       isCompleted 
     });
+  };
+
+  // When clicking a treatment item: call the treatments profile endpoint by name/type
+  const handleTreatmentClick = async (treatment: Treatment) => {
+    setIsProcessing(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('profile', '1');
+      params.set('animalType', treatment.animalType);
+      params.set('animalName', treatment.animalName);
+      const url = `/api/treatments?${params.toString()}`;
+      console.log('Fetching treatment profile for click:', url);
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn('Profile fetch failed for', treatment.animalName, res.status);
+      } else {
+        const data = await res.json();
+        console.log('Profile fetch returned:', data);
+      }
+    } catch (err) {
+      console.error('Error fetching profile on click:', err);
+    } finally {
+      setIsProcessing(false);
+    }
+    // Navigate to profile view using the provided callback (type first, then name)
+    onSelectAnimal(treatment.animalType, treatment.animalName);
   };
 
   const handleConfirmToggle = () => {
@@ -252,7 +290,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         className={`overflow-hidden hover:shadow-md transition-all duration-300 cursor-pointer ${
           isCompleted ? "opacity-60" : ""
         }`}
-        onClick={() => onSelectAnimal(1)}
+        onClick={() => handleTreatmentClick(treatment)}
       >
         <CardContent className="p-4">
           <div className="flex items-center gap-4">
@@ -265,18 +303,6 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                 checked={isCompleted}
                 className="w-6 h-6 rounded-md transition-all"
               />
-            </div>
-
-            <div
-              className="flex items-center justify-center px-4 py-2 rounded-lg flex-shrink-0"
-              style={{ backgroundColor: '#CFE4D3' }}
-            >
-              <div className="text-center">
-                <div className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <div className="mt-1">{treatment.time}</div>
-              </div>
             </div>
 
             <div className="w-16 h-16 rounded-full overflow-hidden flex-shrink-0">
@@ -292,7 +318,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                 <h3>{treatment.animalName}</h3>
                 <span className="text-sm text-muted-foreground">({treatment.animalType})</span>
               </div>
-              <p className="text-sm text-right">{treatment.treatmentType}</p>
+              <p className="text-sm text-right font-medium">{treatment.medicalCase}</p>
               <p className="text-sm text-muted-foreground text-right">מטפל/ת: {treatment.caregiver}</p>
             </div>
 
@@ -316,6 +342,15 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ backgroundColor: '#F7F3ED' }}>
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <p className="text-lg font-semibold">מעבד...</p>
+          </div>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <h1 className="mb-2 text-right text-[24px]">לוח זמנים יומי</h1>
@@ -489,7 +524,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                             <div className="space-y-1">
                               {animalTreatments.map(treatment => (
                                 <div key={treatment.id} className="flex items-center justify-between text-sm">
-                                  <span>{treatment.time} - {treatment.treatmentType}</span>
+                                  <span>{treatment.medicalCase}</span>
                                   <div className="flex items-center gap-1">
                                     {completedTreatments.has(treatment.id) ? (
                                       <CheckCircle2 className="w-4 h-4 text-green-600" />

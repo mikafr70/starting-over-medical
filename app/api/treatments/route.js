@@ -3,16 +3,16 @@ import { updateAnimalInList } from '@/src/lib/sheets'; // ...existing code...
 export async function PUT(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const animalId = searchParams.get('animalId');
-    if (!animalId) {
-      return new Response(JSON.stringify({ error: 'animalId is required' }), {
+    const animalName = searchParams.get('animalName');
+    if (!animalName) {
+      return new Response(JSON.stringify({ error: 'animalName is required' }), {
         status: 400,
         headers: CORS_HEADERS
       });
     }
     const body = await request.json();
     const { animalType, updatedAnimal } = body;
-    console.log('Updating animal:', animalId, 'of type:', animalType, 'with data:', updatedAnimal);
+    console.log('Updating animal:', animalName, 'of type:', animalType, 'with data:', updatedAnimal);
     if (!animalType) {
       return new Response(JSON.stringify({ error: 'animalType is required' }), {
         status: 400,
@@ -70,31 +70,31 @@ export async function GET(request) {
     await ensureConfigLoaded();
     
     const { searchParams } = new URL(request.url);
-    const animalId = searchParams.get('animalId');
     const animalType = searchParams.get('animalType');
     const profile = searchParams.get('profile');
+    const animalName = searchParams.get('animalName');
 
     console.log('searchParams:', { searchParams});
 
-    console.log('Fetching treatments with params:', { animalId, animalType, profile });
-    // Profile endpoint: /api/treatments?profile=1&animalId=XXX
-    if (profile && animalId) {
-      //console.log('Received animalId for profile:', animalId);
-      // Get all animals from the main animals sheet
+    console.log('Fetching treatments with params:', { animalName, animalType, profile });
+    // Profile endpoint: /api/treatments?profile=1&animalName=XXX or &animalName=NAME
+    if (profile && animalName) {
+      // Allow lookup by ID or by name
       const allAnimals = await getAnimals(animalType);
       console.log('All animals fetched:', allAnimals.length);
 
-      const animal = allAnimals.find(a => a.id === animalId || a.id_number === animalId || a.id2 === animalId);
-      console.log('Animal found: ', animal.name);
+      const targetAnimal = allAnimals.find(a => a.name === animalName || a.displayName === animalName || (a.name && a.name.includes(animalName)));
 
-      if (!animal) {
-        return new Response(JSON.stringify({ error: 'Animal not found', animalId }), {
+      if (!targetAnimal) {
+        return new Response(JSON.stringify({ error: 'Animal not found', animalName }), {
           status: 404,
           headers: CORS_HEADERS
         });
       }
+
+      console.log('Animal found: ', targetAnimal.name || targetAnimal.displayName);
       // Get all treatments for this animal from its individual sheet
-      const allTreatments = await getAnimalTreatments(animalType, animalId);
+      const allTreatments = await getAnimalTreatments(animalType, targetAnimal.name);
 
       //console.log('All treatments fetched for animal:', allTreatments);
 
@@ -110,14 +110,14 @@ export async function GET(request) {
         
       });
 
-      return new Response(JSON.stringify({ animal, treatments }), {
+      return new Response(JSON.stringify({ animal: targetAnimal, treatments }), {
         status: 200,
         headers: CORS_HEADERS
       });
     }
 
     // Return list of animal types
-    if (!animalId && !animalType) {
+    if (!animalName && !animalType) {
       const types = getAllAnimalTypes();
       console.log('Returning animal types:', types);
       return new Response(JSON.stringify(types), { 
@@ -127,7 +127,7 @@ export async function GET(request) {
     }
 
     // Return animals of a specific type (read the sheet by sheetId)
-if (animalType && !animalId) {
+    if (animalType && !animalName) {
       const sheets = ANIMAL_TREATMENT_SHEETS();   // <-- CALL the function
       const typeInfo = sheets[animalType];         // <-- lookup inside returned object
 
@@ -192,12 +192,12 @@ if (animalType && !animalId) {
 
       return new Response(JSON.stringify(animals), { status: 200, headers: CORS_HEADERS });
     }
-    console.log('@@@@@@@@Fetching treatments for animalType:', animalType, 'animalId:');
+    console.log('@@@@@@@@Fetching treatments for animalType:', animalType, 'animalName:', animalName);
 
 
     // Get treatments for a specific animal
     const animalTypeInfo = Object.values(ANIMAL_TREATMENT_SHEETS()).find(
-      type => Object.keys(type.animals).includes(animalId)
+      type => Object.keys(type.animals).includes(animalName)
     );
 
     console.log('@@@@@@@@Fetching treatments for animalTypeInfo:', animalTypeInfo);
@@ -206,7 +206,7 @@ if (animalType && !animalId) {
     if (!animalTypeInfo) {
       return new Response(JSON.stringify({ 
         error: 'No treatment sheet found for this animal',
-        animalId 
+        animalName 
       }), {
         status: 404,
         headers: CORS_HEADERS
@@ -231,22 +231,22 @@ if (animalType && !animalId) {
 export async function POST(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const animalId = searchParams.get('animalId');
+    const animalName = searchParams.get('animalName');
 
-    log('Received animalId:', animalId);
-    if (!animalId) {
-      return new Response(JSON.stringify({ error: 'animalId is required' }), {
+    log('Received animalName:', animalName);
+    if (!animalName) {
+      return new Response(JSON.stringify({ error: 'animalName is required' }), {
         status: 400,
         headers: CORS_HEADERS
       });
     }
 
     // Check if we have a treatment sheet for this animal
-    const animalInfo = ANIMAL_TREATMENT_SHEETS()[animalId];
+    const animalInfo = ANIMAL_TREATMENT_SHEETS()[animalType];
     if (!animalInfo) {
       return new Response(JSON.stringify({ 
         error: 'No treatment sheet found for this animal',
-        animalId 
+        animalType 
       }), {
         status: 404,
         headers: CORS_HEADERS

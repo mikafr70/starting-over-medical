@@ -5,6 +5,8 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
 import { API_ENDPOINTS } from "../config/api";
+import { Loader2 } from "lucide-react";
+import React from "react";
 
 interface Animal {
   id: string;
@@ -22,7 +24,7 @@ interface AnimalType {
 }
 
 interface MedicalRecordsProps {
-  onOpenProfile: (selectedAnimalType: string, selectedAnimalId: string) => void;
+  onOpenProfile: (selectedAnimalType: string, selectedAnimalName: string) => void;
   onBack: () => void;
 }
 
@@ -32,9 +34,11 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
   const [animals, setAnimals] = useState<Animal[]>([]);
   const [selectedAnimal, setSelectedAnimal] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
   
   useEffect(() => {
     const loadTypes = async () => {
+      setIsProcessing(true);
       try {
         const res = await fetch(API_ENDPOINTS.treatments());
         if (!res.ok) throw new Error('Failed to load types');
@@ -43,6 +47,8 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
       } catch (err) {
         console.error(err);
         toast.error('לא ניתן לטעון סוגי חיות');
+      } finally {
+        setIsProcessing(false);
       }
     };
     loadTypes();
@@ -52,6 +58,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
   const handleTypeChange = async (value: string) => {
     setSelectedType(value);
     setSelectedAnimal("");
+    setIsProcessing(true);
     try {
       const res = await fetch(API_ENDPOINTS.treatmentsByType(value));
       if (!res.ok) throw new Error('Failed to load animals');
@@ -77,6 +84,8 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
       console.error(err);
       setAnimals([]);
       toast.error('לא ניתן לטעון חיות עבור סוג זה');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -92,6 +101,15 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ backgroundColor: '#F7F3ED' }}>
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <p className="text-lg font-semibold">מעבד...</p>
+          </div>
+        </div>
+      )}
       <div className="max-w-3xl mx-auto">
         <Button variant="ghost" onClick={onBack} className="mb-4 gap-2">חזור</Button>
         <Card>
@@ -134,7 +152,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
                       <div className="px-2 py-2 text-gray-500">לא נמצאו חיות תואמות</div>
                     ) : (
                       filteredAnimals.map(a => (
-                        <SelectItem key={a.id} value={a.id}>{a.name} {a.id_number ? `(${a.id_number})` : `(${a.id})`}</SelectItem>
+                        <SelectItem key={a.id} value={a.name}>{a.name} {a.id_number ? `(${a.id_number})` : `(${a.id})`}</SelectItem>
                       ))
                     )}
                   </SelectContent>

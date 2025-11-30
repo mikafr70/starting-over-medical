@@ -6,7 +6,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { ArrowRight, Save } from "lucide-react";
+import { ArrowRight, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { API_ENDPOINTS } from "../config/api";
 import { cn } from "./ui/utils";
@@ -98,6 +98,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [caregiver, setCaregiver] = useState("");
   const [notes, setNotes] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Caregivers list (fetched from backend caregivers sheet)
   const [caregivers, setCaregivers] = useState<string[]>([]);
@@ -282,6 +283,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
     // Send all rows in a single bulk request
     (async () => {
       setLoading(true);
+      setIsProcessing(true);
       try {
         console.log('Sending rows to backend:', rowsToSend);
         const res = await fetch(API_ENDPOINTS.treatmentsBulk(selectedAnimal, selectedAnimalType, { delete: 'FALSE' }), {
@@ -303,12 +305,22 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
         toast.error('שמירה נכשלה - נסה שוב');
       } finally {
         setLoading(false);
+        setIsProcessing(false);
       }
     })();
   };
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ backgroundColor: '#F7F3ED' }}>
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <p className="text-lg font-semibold">מעבד...</p>
+          </div>
+        </div>
+      )}
       <div className="max-w-3xl mx-auto">
         <Button variant="ghost" onClick={onBack} className="mb-4 gap-2">
           חזור

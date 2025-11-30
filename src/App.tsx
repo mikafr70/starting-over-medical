@@ -16,7 +16,7 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [selectedAnimalType, setSelectedAnimalType] = useState<string>("");
-  const [selectedAnimalId, setSelectedAnimalId] = useState<number>(1);
+  const [selectedAnimalName, setSelectedAnimalName] = useState<string>("");
   const [previousScreen, setPreviousScreen] = useState<Screen>("dashboard");
 
   const handleLogin = (nameOrEmail: string) => {
@@ -36,26 +36,18 @@ export default function App() {
     }
   };
 
-  const handleSelectAnimal = (animalTypeOrId: string | number, animalId?: string | number) => {
-    // Supports two call signatures:
-    // - handleSelectAnimal(animalId)
-    // - handleSelectAnimal(animalType, animalId)
-    if (animalId !== undefined) {
-      // two-arg form: first arg is animalType
-      setSelectedAnimalType(String(animalTypeOrId));
-      const parsed = typeof animalId === 'string' ? parseInt(animalId, 10) : animalId;
-      setSelectedAnimalId(isNaN(Number(parsed)) ? 1 : Number(parsed));
-    } else {
-      // single-arg form: only id provided
-      setSelectedAnimalType("");
-      const parsed = typeof animalTypeOrId === 'string' ? parseInt(animalTypeOrId, 10) : animalTypeOrId;
-      setSelectedAnimalId(isNaN(Number(parsed)) ? 1 : Number(parsed));
-    }
+  const handleSelectAnimal = (animalType: string , animalName?: string ) => {
+    // Supports multiple call signatures:
+    // - handleSelectAnimal(animalType, animalName) - from DailySchedule
+    // - handleSelectAnimal(animalType, animalName) - from Dashboard
+    
+    setSelectedAnimalType(animalType);
+    setSelectedAnimalName(animalName);
     setCurrentScreen("profile");
   };
 
-  const handleAddTreatment = (animalId: number) => {
-    setSelectedAnimalId(animalId);
+  const handleAddTreatment = (animalName: string) => {
+    setSelectedAnimalName(animalName);
     setCurrentScreen("addTreatment");
   };
 
@@ -66,6 +58,11 @@ export default function App() {
 
   const handleAddTreatmentFromDashboard = () => {
     setPreviousScreen("dashboard");
+    setCurrentScreen("addTreatmentFromSchedule");
+  };
+
+  const handleAddTreatmentFromProfile = () => {
+    setPreviousScreen("profile");
     setCurrentScreen("addTreatmentFromSchedule");
   };
 
@@ -118,18 +115,17 @@ export default function App() {
       {currentScreen === "profile" && (
         <AnimalProfile
           animalType={selectedAnimalType}
-          animalId={String(selectedAnimalId)}
+          animalName={selectedAnimalName}
           onBack={handleBackFromProfile}
-          onAddTreatment={handleAddTreatment}
+          onAddTreatment={handleAddTreatmentFromProfile}
         />
       )}
 
       {currentScreen === "medicalRecords" && (
         <MedicalRecords
-          onOpenProfile={(animalType: string, animalId: string) => {
+          onOpenProfile={(animalType: string, animalName: string) => {
             setSelectedAnimalType(animalType);
-            const parsed = parseInt(animalId, 10);
-            setSelectedAnimalId(isNaN(parsed) ? 1 : parsed);
+            setSelectedAnimalName(animalName);
             setCurrentScreen("profile");
           }}
           onBack={() => setCurrentScreen("dashboard")}
@@ -139,7 +135,7 @@ export default function App() {
       {currentScreen === "addTreatment" && (
         <AddTreatment
           
-          animalName={String(selectedAnimalId)}
+          animalName={selectedAnimalName}
           onBack={handleBackFromAddTreatment}
         />
       )}

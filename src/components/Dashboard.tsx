@@ -50,7 +50,7 @@ interface Animal {
 
 
 interface DashboardProps {
-  onSelectAnimal: (animalType: string | number, animalId: string | number) => void;
+  onSelectAnimal: (animalType: string , animalName: string) => void;
   onAddTreatment: () => void;
   email: string;
   username?: string;

@@ -4,10 +4,10 @@ export const API_ENDPOINTS = {
   caregiver: (email: string) => `/api/caregiver?email=${encodeURIComponent(email)}`,
   animals: (caregiver: string) => `/api/animals?caregiver=${encodeURIComponent(caregiver)}`,
   caregivers: () => `/api/caregivers`,
-  treatments: (animalId?: string) => animalId 
-    ? `/api/treatments?animalId=${animalId}`
+  treatments: (animalName?: string) => animalName 
+    ? `/api/treatments?animalName=${encodeURIComponent(animalName)}`
     : `/api/treatments`,
-  treatmentsProfile: (animalType: string, animalId: string) => `/api/treatments?profile=1&animalType=${encodeURIComponent(animalType)}&animalId=${encodeURIComponent(animalId)}`,
+  treatmentsProfile: (animalType: string, animalName: string) => `/api/treatments?profile=1&animalType=${encodeURIComponent(animalType)}&animalName=${encodeURIComponent(animalName)}`,
   treatmentsByType: (animalType: string) => `/api/treatments?animalType=${encodeURIComponent(animalType)}`,
   treatmentsBulk: (animalName: string, animalType: string, options?: { delete?: string }) => {
     const params = new URLSearchParams({

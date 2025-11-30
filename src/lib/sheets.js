@@ -101,7 +101,6 @@ export const ANIMAL_TREATMENT_SHEETS = () => ({
   },
 });
 
-
 /*--------------------------------------------------
  Helper function to get all animal types
 ---------------------------------------------------*/
@@ -112,6 +111,29 @@ export function getAllAnimalTypes() {
     displayName: info.displayName,
     emoji: info.emoji,
   }));
+}
+
+
+/*--------------------------------------------------
+ Helper function to find English key from Hebrew displayName
+---------------------------------------------------*/
+export async function getAnimalTypeKey(animalTypeInput) {
+  const sheets = ANIMAL_TREATMENT_SHEETS();
+  
+  // If it's already an English key, return it
+  if (sheets[animalTypeInput]) {
+    return animalTypeInput;
+  }
+  
+  // Otherwise, search by displayName (Hebrew)
+  const entry = Object.entries(sheets).find(([key, value]) => value.displayName === animalTypeInput);
+  if (entry) {
+    return entry[0]; // return the English key
+  }
+  
+  // If not found, return the original input (will likely cause an error later)
+  console.warn(`Could not find animal type for: ${animalTypeInput}`);
+  return animalTypeInput;
 }
 
 
@@ -282,21 +304,22 @@ export async function getDoc(spreadsheetId) {
 /*-------------------------------------------------
  Find spreadsheet in folder
 --------------------------------------------------*/
-async function findSpreadsheetInFolder(animalType, animalId) {
+async function findSpreadsheetInFolder(animalType, animalName) {
   await ensureConfigLoaded();
   const drive = getDriveClient();
-  const folderId = ANIMAL_TREATMENT_SHEETS()[animalType].folderId;
+  const animalTypeKey = await getAnimalTypeKey(animalType);
+  const folderId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId;
 
   try {
     const response = await drive.files.list({
-      q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and name contains '${animalId}'`,
+      q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and name contains '${animalName}'`,
       fields: 'files(id, name)',
       spaces: 'drive'
     });
 
     const files = response.data.files;
     if (files.length === 0) {
-      console.log(`No treatment sheet found for animal ${animalId}`);
+      console.log(`No treatment sheet found for animal ${animalName}`);
       return null;
     }
 
@@ -342,23 +365,25 @@ export async function getAnimals(animalType) {
     await ensureConfigLoaded();
     
     try {
-    console.log('>>> getAnimals for type:', animalType);
+      // Convert Hebrew displayName to English key if needed
+      const animalTypeKey = await getAnimalTypeKey(animalType);
+      console.log('>>> getAnimals for type:', animalType, '-> key:', animalTypeKey);
+      
+      console.log('@@@Animals sheet ID:', ANIMAL_TREATMENT_SHEETS()[animalTypeKey].sheetId);
     
-    console.log('@@@Animals sheet ID:', ANIMAL_TREATMENT_SHEETS()[animalType].sheetId);
-  
-    const doc = await getDoc(ANIMAL_TREATMENT_SHEETS()[animalType].sheetId);
-    console.log('@@@Got doc, title:', doc.title);
+      const doc = await getDoc(ANIMAL_TREATMENT_SHEETS()[animalTypeKey].sheetId);
+      console.log('@@@Got doc, title:', doc.title);
 
-    const sheet = doc.sheetsByIndex[0];
-    console.log('Got sheet, title:', sheet.title);
+      const sheet = doc.sheetsByIndex[0];
+      console.log('Got sheet, title:', sheet.title);
 
-    const rows = await sheet.getRows();
-    console.log('@@@Got rows, count:', rows.length);
-    const headers = sheet.headerValues;
-    const headerMap = {};
+      const rows = await sheet.getRows();
+      console.log('@@@Got rows, count:', rows.length);
+      const headers = sheet.headerValues;
+      const headerMap = {};
 
-    headers.forEach((name, idx) => {
-        headerMap[name.trim()] = idx;
+      headers.forEach((name, idx) => {
+          headerMap[name.trim()] = idx;
     });
 
     const animals = rows.map(row => ({
@@ -395,11 +420,11 @@ export async function getAnimals(animalType) {
 /*--------------------------------------------------
   Get treatments for an animal
 ---------------------------------------------------*/
-export async function getAnimalTreatments(animalType, animalId) {
+export async function getAnimalTreatments(animalType, animalName) {
   try {
-    console.log(`>>> getAnimalTreatments for animalId: ${animalId}`);
+    console.log(`>>> getAnimalTreatments for animalName: ${animalName}`);
     await ensureConfigLoaded();
-    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalId);
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
     if (!spreadsheetId) {
       return [];
     }
@@ -407,7 +432,7 @@ export async function getAnimalTreatments(animalType, animalId) {
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
-    console.log(`Fetched ${rows.length} treatment rows for animal ${animalId}`);
+    console.log(`Fetched ${rows.length} treatment rows for animal ${animalName}`);
     await sheet.loadHeaderRow();
     const headers = sheet.headerValues;
     const headerMap = {};
@@ -433,7 +458,7 @@ export async function getAnimalTreatments(animalType, animalId) {
 
     return treatmentsMap;
   } catch (error) {
-    console.error(`Error fetching treatments for animal ${animalId}:`, error);
+    console.error(`Error fetching treatments for animal ${animalName}:`, error);
     return [];
   }
 }
@@ -1011,6 +1036,8 @@ export async function hasTreatmentToday(sheetId, todayStr) {
   const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
   const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
   const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
+  const caseCol = headerMap['מקרה'] !== undefined ? headerMap['מקרה'] : 10;
+  
   try {  
     for(const row of rows) {
       const stringDate = row._rawData?.[0];
@@ -1027,15 +1054,16 @@ export async function hasTreatmentToday(sheetId, todayStr) {
         const morningValue = row._rawData?.[morningCol];
         const noonValue = row._rawData?.[noonCol];
         const eveningValue = row._rawData?.[eveningCol];
+        const medicalCase = row._rawData?.[caseCol] || 'ללא תיאור';
         
         if(morningValue === false || morningValue === 'FALSE') {
-          treatmentTimes.push('morning');
+          treatmentTimes.push({ timeSlot: 'morning', medicalCase });
         }
         if(noonValue === false || noonValue === 'FALSE') {
-          treatmentTimes.push('noon');
+          treatmentTimes.push({ timeSlot: 'noon', medicalCase });
         }
         if(eveningValue === false || eveningValue === 'FALSE') {
-          treatmentTimes.push('evening');
+          treatmentTimes.push({ timeSlot: 'evening', medicalCase });
         }
         
         // If all time-specific treatments are blank, it's a general treatment
@@ -1044,12 +1072,12 @@ export async function hasTreatmentToday(sheetId, todayStr) {
         const isEveningBlank = eveningValue === '';
         
         if(isMorningBlank && isNoonBlank && isEveningBlank) {
-          treatmentTimes.push('general');
+          treatmentTimes.push({ timeSlot: 'general', medicalCase });
         }
         
         // If no time slots are specified but there's a treatment row, it's general
         if(treatmentTimes.length === 0) {
-          treatmentTimes.push('general');
+          treatmentTimes.push({ timeSlot: 'general', medicalCase });
         }
       }
     }

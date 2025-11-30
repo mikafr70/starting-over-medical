@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { ArrowRight, Calendar, Pill } from "lucide-react";
+import { ArrowRight, Calendar, Pill, Loader2 } from "lucide-react";
 import { API_ENDPOINTS } from "../config/api";
+import React from "react";
 
 
 
@@ -73,29 +74,36 @@ export function TreatmentCheckboxes({
 
 interface AnimalProfileProps {
   animalType: string;
-  animalId: string;
+  animalName?: string;
   onBack: () => void;
-  onAddTreatment?: (animalId: number) => void;
+  onAddTreatment?: (animalName: number) => void;
 }
 
-export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfileProps) {
+export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileProps) {
   // Editable animal data state
   const [editAnimal, setEditAnimal] = useState<any | null>(null);
   const [editTreatments, setEditTreatments] = useState<any[]>([]);
   const [savingAnimal, setSavingAnimal] = useState(false);
   const [savingTreatments, setSavingTreatments] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const [animal, setAnimal] = useState<any | null>(null);
   const [treatments, setTreatments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  console.log('$$$$$$$$$AnimalProfile Render:', { animalType, animalId });
+  console.log('$$$$$$$$$AnimalProfile Render:', { animalType, animalName });
   
   useEffect(() => {
     const fetchProfile = async () => {
       setLoading(true);
       try {
-        const res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalId));
+        let res;
+
+        console.log(`Fetching animal by Name: ${animalName} of type: ${animalType}`);
+        // Standard fetch by Name
+        res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName));
+        
         if (!res.ok) throw new Error('Failed to fetch animal profile');
+
         const data = await res.json();
         console.log('Fetched animal profile data:', data.treatments);
         setAnimal(data.animal);
@@ -103,6 +111,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
         setTreatments(data.treatments || []);
         setEditTreatments((data.treatments || []).map((t: any) => ({ ...t })));
       } catch (err) {
+        console.error('Error fetching animal profile:', err);
         setAnimal(null);
         setEditAnimal(null);
         setTreatments([]);
@@ -112,7 +121,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
       }
     };
     fetchProfile();
-  }, [animalId]);
+  }, [animalName, animalType]);
 
   if (loading) {
     return <div className="p-8 text-center">טוען נתוני חיה...</div>;
@@ -124,6 +133,15 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ backgroundColor: '#F7F3ED' }}>
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <p className="text-lg font-semibold">מעבד...</p>
+          </div>
+        </div>
+      )}
       <div className="max-w-5xl mx-auto">
         <Button variant="ghost" onClick={onBack} className="mb-4 gap-2">
           חזור
@@ -172,8 +190,9 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
                   disabled={savingAnimal}
                   onClick={async () => {
                     setSavingAnimal(true);
+                    setIsProcessing(true);
                     try {
-                      const res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalId), {
+                      const res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName), {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ animalType, updatedAnimal: editAnimal })
@@ -187,6 +206,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
                       // Optionally show error
                     } finally {
                       setSavingAnimal(false);
+                      setIsProcessing(false);
                     }
                   }}
                 >
@@ -211,6 +231,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
                     className="ml-auto"
                     onClick={async () => {
                       setSavingTreatments(true);
+                      setIsProcessing(true);
                       try {
                         // Ensure morning, noon, evening are always 'TRUE', 'FALSE', or ''
                         const normalizeCheckbox = (val: any) => {
@@ -231,7 +252,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
                         });
                         if (!res.ok) throw new Error('Failed to save treatments');
                         // Optionally refetch updated treatments
-                        const updated = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalId));
+                        const updated = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName));
                         const data = await updated.json();
                         setTreatments(data.treatments || []);
                         setEditTreatments((data.treatments || []).map((t: any) => ({ ...t })));
@@ -239,6 +260,7 @@ export function AnimalProfile({ animalType, animalId, onBack }: AnimalProfilePro
                         // Optionally show error
                       } finally {
                         setSavingTreatments(false);
+                        setIsProcessing(false);
                       }
                     }}
                   >

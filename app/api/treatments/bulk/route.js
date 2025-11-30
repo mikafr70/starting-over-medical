@@ -1,4 +1,4 @@
-import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded } from '@/src/lib/sheets';
+import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded, getAnimalTypeKey } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -14,6 +14,14 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
+export function formatDMY(date) {
+    const d = date.getDate().toString().padStart(2, '0');
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}/${m}/${y}`;
+  }
+
+
 export async function POST(request) {
   try {
     await ensureConfigLoaded();
@@ -22,8 +30,9 @@ export async function POST(request) {
     const animalName = searchParams.get('animalName');
     const animalType = searchParams.get('animalType');
     const deleteFlag = searchParams.get('delete');
+    const animalTypeKey = await getAnimalTypeKey(animalType);
 
-    console.log(`@@@@@@@@ bulk add treatments for animal type: ${animalType}, animal name: ${animalName}. Delete flag: ${deleteFlag}`);
+    console.log(`@@@@@@@@ bulk add treatments for animal type: ${animalTypeKey}, animal name: ${animalName}. Delete flag: ${deleteFlag}`);
    
     if (!animalName) {
       return new Response(JSON.stringify({ error: 'animalName is required' }), {
@@ -31,8 +40,8 @@ export async function POST(request) {
         headers: CORS_HEADERS
       });
     }
-    console.log('search for the animal sheet on:', ANIMAL_TREATMENT_SHEETS()[animalType].folderId);
-    const animalSheetId = await findSheetIdByName(ANIMAL_TREATMENT_SHEETS()[animalType].folderId, animalName);
+    console.log('search for the animal sheet on:', ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId);
+    const animalSheetId = await findSheetIdByName(ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId, animalName);
     console.log('found sheet id:', animalSheetId);
 
     if (!animalSheetId) {
@@ -53,13 +62,26 @@ export async function POST(request) {
     }
    
     if(deleteFlag == 'TRUE') {
+      if(treatments.length === 0) { 
+        // start date is a week back, end date is a month forward from today
+        const startDateObj = new Date();startDateObj.setDate(startDateObj.getDate() - 7);
+        const endDateObj = new Date();endDateObj.setDate(endDateObj.getDate() + 30);
+        const startDate = formatDMY(startDateObj);
+        const endDate = formatDMY(endDateObj);
+        console.log(`Deleting existing treatments for ${animalName} from ${startDate} to ${endDate}`);
+        await deleteAnimalTreatmentsBetweenDates(animalTypeKey, animalName, startDate, endDate);
+        return new Response(JSON.stringify({ message: 'No treatments provided to determine deletion range' }), { status: 200, headers: CORS_HEADERS });
+      }
       const startDate = treatments.reduce((min, t) => t.date < min ? t.date : min, treatments[0].date);
       const endDate = treatments.reduce((max, t) => t.date > max ? t.date : max, treatments[0].date);
       console.log(`Deleting existing treatments for ${animalName} from ${startDate} to ${endDate}`);
-      await deleteAnimalTreatmentsBetweenDates(animalType, animalName, startDate.toString("DD/MM/YYYY"), endDate.toString("DD/MM/YYYY"));
+      await deleteAnimalTreatmentsBetweenDates(animalTypeKey, animalName, startDate.toString("DD/MM/YYYY"), endDate.toString("DD/MM/YYYY"));
     }
 
     try {
+      if (treatments.length === 0) { 
+        return new Response(JSON.stringify({ message: 'No treatments to add' }), { status: 200, headers: CORS_HEADERS });
+      }
       const result = await addTreatmentAtTop(animalSheetId, treatments);
       await sortAnimalTreatmentsByDateDescending(animalSheetId, animalName);  
       return new Response(JSON.stringify(result), { status: 201, headers: CORS_HEADERS });
