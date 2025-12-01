@@ -36,7 +36,7 @@ export default function App() {
     }
   };
 
-  const handleSelectAnimal = (animalType: string , animalName?: string ) => {
+  const handleSelectAnimal = (animalType: string , animalName: string ) => {
     // Supports multiple call signatures:
     // - handleSelectAnimal(animalType, animalName) - from DailySchedule
     // - handleSelectAnimal(animalType, animalName) - from Dashboard
