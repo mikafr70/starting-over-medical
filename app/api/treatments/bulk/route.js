@@ -14,12 +14,12 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
-export function formatDMY(date) {
+function formatDMY(date) {
     const d = date.getDate().toString().padStart(2, '0');
     const m = (date.getMonth() + 1).toString().padStart(2, '0');
     const y = date.getFullYear();
     return `${d}/${m}/${y}`;
-  }
+}
 
 
 export async function POST(request) {
