@@ -16,7 +16,7 @@ interface Treatment {
   treatmentType: string;
   medicalCase: string;
   time: string;
-  timeSlot?: string; // morning, noon, evening, general
+  timeSlot: string; // morning, noon, evening, general
   caregiver: string;
 }
 
