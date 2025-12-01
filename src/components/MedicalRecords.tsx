@@ -114,18 +114,17 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
         <Button variant="ghost" onClick={onBack} className="mb-4 gap-2">חזור</Button>
         <Card>
           <CardHeader>
-            <CardTitle className="text-right">תיקים רפואיים</CardTitle>
-            <CardDescription className="text-right">בחר חיה כדי לצפות בפרטי הרפואיים</CardDescription>
+            <CardDescription className="text-right">בחר חיה כדי לצפות בפרטים הרפואיים</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-right">בחר סוג חיה</Label>
                 <Select value={selectedType} onValueChange={handleTypeChange}>
-                  <SelectTrigger>
+                  <SelectTrigger className="text-right">
                     <SelectValue placeholder="בחר סוג חיה" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent dir="rtl">
                     {animalTypes.map(t => (
                       <SelectItem key={t.id} value={t.id}>{t.emoji ? `${t.emoji} ${t.displayName}` : t.displayName}</SelectItem>
                     ))}
@@ -144,10 +143,10 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
                   style={{ direction: "rtl" }}
                 />
                 <Select value={selectedAnimal} onValueChange={(v: string) => setSelectedAnimal(v)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="text-right">
                     <SelectValue placeholder="בחר חיה" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent dir="rtl">
                     {filteredAnimals.length === 0 ? (
                       <div className="px-2 py-2 text-gray-500">לא נמצאו חיות תואמות</div>
                     ) : (
@@ -160,7 +159,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
               </div>
             </div>
 
-            <div className="mt-6 flex gap-2">
+            <div className="mt-4 gap-2">
               <Button disabled={!selectedAnimal} onClick={() => onOpenProfile(selectedType, selectedAnimal)}>פתח תיק</Button>
             </div>
           </CardContent>

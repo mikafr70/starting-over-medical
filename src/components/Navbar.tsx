@@ -25,8 +25,8 @@ export function Navbar({ currentScreen, onNavigate, onLogout, username }: Navbar
               onClick={() => onNavigate("dashboard")}
               className="gap-2"
             >
-              <span className="hidden sm:inline">דף הבית</span>
               <Home className="w-4 h-4" />
+              <span className="hidden sm:inline">דף הבית</span>
             </Button>
             <Button
               variant={currentScreen === "schedule" ? "default" : "ghost"}
@@ -34,8 +34,8 @@ export function Navbar({ currentScreen, onNavigate, onLogout, username }: Navbar
               onClick={() => onNavigate("schedule")}
               className="gap-2"
             >
-              <span className="hidden sm:inline">לוח זמנים</span>
               <Calendar className="w-4 h-4" />
+              <span className="hidden sm:inline">לוח זמנים</span>
             </Button>
             <Button
               variant={currentScreen === "medicalRecords" ? "default" : "ghost"}
@@ -43,15 +43,14 @@ export function Navbar({ currentScreen, onNavigate, onLogout, username }: Navbar
               onClick={() => onNavigate("medicalRecords")}
               className="gap-2"
             >
-              <span className="hidden sm:inline"> תיקים רפואיים</span>
               <BookOpen className="w-4 h-4" />
+              <span className="hidden sm:inline"> תיקים רפואיים</span>
             </Button>
           </div>
 
           <div className="flex items-center gap-3">
             <span className="hidden sm:inline">{username}</span>
             <Button variant="ghost" size="sm" onClick={onLogout} className="gap-2">
-              <span className="hidden sm:inline">התנתק</span>
               <LogOut className="w-4 h-4" />
             </Button>
           </div>

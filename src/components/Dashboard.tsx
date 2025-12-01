@@ -218,7 +218,6 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
               backgroundColor: '#6B9080',
             }}
           >
-            <Plus className="w-6 h-6 ml-2" />
             <span className="text-xl">הוסף חיה חדשה</span>
           </Button>
         </div>

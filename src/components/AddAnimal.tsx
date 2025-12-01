@@ -139,10 +139,10 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
           <div className="space-y-2">
             <Label className="text-right block">סוג חיה *</Label>
             <Select value={formData.animalType} onValueChange={(val) => handleChange('animalType', val)}>
-              <SelectTrigger>
+              <SelectTrigger className="text-right">
                 <SelectValue placeholder="בחר סוג חיה" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent dir="rtl">
                 {animalTypes.map(t => (
                   <SelectItem key={t.id} value={t.id}>
                     {t.emoji ? `${t.emoji} ${t.displayName}` : t.displayName}

@@ -594,16 +594,16 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       <AlertDialog open={confirmDialog.open} onOpenChange={(open) => !open && handleCancelToggle()}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
+            <AlertDialogTitle className="text-right">
               {confirmDialog.isCompleted ? "ביטול סימון טיפול" : "סימון טיפול כבוצע"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-right">
               {confirmDialog.isCompleted 
                 ? "האם אתה בטוח שברצונך לסמן את הטיפול כממתין?" 
                 : "האם אתה בטוח שברצונך לסמן את הטיפול כבוצע?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
+          <AlertDialogFooter className="gap-2 flex justify-center sm:justify-center">
             <AlertDialogCancel onClick={handleCancelToggle}>
               ביטול
             </AlertDialogCancel>

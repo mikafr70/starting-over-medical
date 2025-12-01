@@ -3,7 +3,7 @@
 
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { google } from 'googleapis';
-
+import { getUserOAuthClient } from './googleAuth';
 
 // Initialize configuration from sheet on module load
 let configLoaded = false;
@@ -1300,37 +1300,62 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
       throw new Error('No folder ID found for animal type: ' + animalType);
     }
 
-    // 1) Auth
-    const auth = getSheetsAuth();
-    const sheetsApi = google.sheets({ version: 'v4', auth });
-    const drive = getDriveClient();  // uses same credentials/scopes
 
-    // 2) Create the file directly in the folder using Drive
-    const createFileRes = await drive.files.create({
+    const userAuth = getUserOAuthClient();
+    const sheetsApi = google.sheets({ version: 'v4', auth: userAuth });
+    const drive = google.drive({ version: 'v3', auth: userAuth });
+
+
+
+
+    console.log('Creating Finished 1');
+    // 2) Create the spreadsheet using Drive API
+    const createResponse = await drive.files.create({
       requestBody: {
         name: sheetName,
         mimeType: 'application/vnd.google-apps.spreadsheet',
-        parents: [folderId],  // <-- create *inside* this folder
+        parents: [folderId],
       },
-      fields: 'id, name, parents'
+      fields: 'id',
     });
 
-    const newSpreadsheetId = createFileRes.data.id;
-    console.log('Created spreadsheet in folder. ID:', newSpreadsheetId, 'parents:', createFileRes.data.parents);
+    console.log('new sheet name:', sheetName);
+    const newSpreadsheetId = createResponse.data.id;
+    console.log('Created spreadsheet. ID:', newSpreadsheetId);
 
-    // 3) Add headers to the new sheet
+    // Get the actual sheet name from the created spreadsheet
+    const spreadsheetInfo = await sheetsApi.spreadsheets.get({
+      spreadsheetId: newSpreadsheetId,
+    });
+    
+    const firstSheetName = spreadsheetInfo.data.sheets[0].properties.title;
+    console.log('First sheet name:', firstSheetName);
+
+    // 3) Move the file to the correct folder using Drive API
+    try {
+      await drive.files.update({
+        fileId: newSpreadsheetId,
+        addParents: folderId,
+        fields: 'id, parents',
+      });
+      console.log('Moved spreadsheet to folder:', folderId);
+    } catch (moveError) {
+      console.warn('Could not move file to folder (continuing anyway):', moveError.message);
+    }
+
+    // 4) Add headers to the new sheet
     const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'מקרה', 'הערות'];
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId: newSpreadsheetId,
-      range: 'Sheet1!A1:L1',
+      range: `${firstSheetName}!A1:L1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [headers],
       },
     });
 
-    // 4) Format the header row
+    // 5) Format the header row
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId: newSpreadsheetId,
       requestBody: {

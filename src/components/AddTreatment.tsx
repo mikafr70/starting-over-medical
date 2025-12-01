@@ -342,10 +342,10 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 <div className="space-y-2">
                   <Label htmlFor="animal-type" className="text-right">סוג חיה *</Label>
                   <Select value={selectedAnimalType} onValueChange={handleTypeChange} required>
-                    <SelectTrigger id="animal-type">
+                    <SelectTrigger id="animal-type" className="text-right">
                       <SelectValue placeholder="בחר סוג חיה" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent dir="rtl">
                       {animalTypes.map((type) => (
                         <SelectItem key={type.id} value={type.id}>
                           {type.emoji ? `${type.emoji} ${type.displayName}` : type.displayName}
@@ -368,10 +368,10 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                       style={{ direction: 'rtl' }}
                     />
                     <Select value={selectedAnimal} onValueChange={(value: string) => setSelectedAnimal(value)} required>
-                      <SelectTrigger id="animal">
+                      <SelectTrigger id="animal" className="text-right">
                         <SelectValue placeholder="בחר חיה" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent dir="rtl">
                         {filteredAnimals.length === 0 ? (
                           <div className="px-2 py-2 text-gray-500">לא נמצאו חיות תואמות</div>
                         ) : (
