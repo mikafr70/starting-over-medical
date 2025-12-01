@@ -1319,6 +1319,7 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
       fields: 'id',
     });
 
+    
     console.log('new sheet name:', sheetName);
     const newSpreadsheetId = createResponse.data.id;
     console.log('Created spreadsheet. ID:', newSpreadsheetId);

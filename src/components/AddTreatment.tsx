@@ -93,7 +93,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
     fetchTypes();
   }, []);
   const [selectedAnimalType, setSelectedAnimalType] = useState("");
-  const [selectedAnimal, setSelectedAnimal] = useState(animalName?.toString() || "");
+  const [selectedAnimal, setSelectedAnimal] = useState(animalName.toString() || "");
   const [searchQuery, setSearchQuery] = useState("");
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [caregiver, setCaregiver] = useState("");

@@ -74,9 +74,9 @@ export function TreatmentCheckboxes({
 
 interface AnimalProfileProps {
   animalType: string;
-  animalName?: string;
+  animalName: string;
   onBack: () => void;
-  onAddTreatment?: (animalName: number) => void;
+  onAddTreatment?: (animalName: string) => void;
 }
 
 export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileProps) {
