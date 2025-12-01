@@ -5,11 +5,12 @@ import { google } from 'googleapis';
 
 const __dirname = process.cwd(); // Next.js root
 
-const CREDENTIALS_PATH = path.join(__dirname, 'secrets', 'oauth_client.json');
-const TOKEN_PATH = path.join(__dirname, 'secrets', 'token.json');
+//const CREDENTIALS_PATH = path.join(__dirname, 'secrets', 'oauth_client.json');
+//const TOKEN_PATH = path.join(__dirname, 'secrets', 'token.json');
 
 function loadOAuthCredentials() {
-  const content = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
+  const content = process.env.OAUTH_CLIENT_JSON;
+
   const { installed } = JSON.parse(content);
   return installed;
 }
@@ -22,7 +23,8 @@ export function getUserOAuthClient() {
     redirect_uris[0],
   );
 
-  const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+  const token = JSON.parse(process.env.OAUTH_TOKEN_JSON);
+
   oAuth2Client.setCredentials(token);
 
   return oAuth2Client;
