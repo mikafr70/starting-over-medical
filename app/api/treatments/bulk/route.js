@@ -1,4 +1,4 @@
-import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded, getAnimalTypeKey } from '@/src/lib/sheets';
+import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded, getAnimalTypeKey, setCaregiverForAnimal } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -30,9 +30,10 @@ export async function POST(request) {
     const animalName = searchParams.get('animalName');
     const animalType = searchParams.get('animalType');
     const deleteFlag = searchParams.get('delete');
+    const caregiverName = searchParams.get('caregiver');
     const animalTypeKey = await getAnimalTypeKey(animalType);
 
-    console.log(`@@@@@@@@ bulk add treatments for animal type: ${animalTypeKey}, animal name: ${animalName}. Delete flag: ${deleteFlag}`);
+    console.log(`@@@@@@@@ bulk add treatments for animal type: ${animalTypeKey}, animal name: ${animalName}. Delete flag: ${deleteFlag}, Caregiver: ${caregiverName}`);
    
     if (!animalName) {
       return new Response(JSON.stringify({ error: 'animalName is required' }), {
@@ -83,7 +84,19 @@ export async function POST(request) {
         return new Response(JSON.stringify({ message: 'No treatments to add' }), { status: 200, headers: CORS_HEADERS });
       }
       const result = await addTreatmentAtTop(animalSheetId, treatments);
-      await sortAnimalTreatmentsByDateDescending(animalSheetId, animalName);  
+      await sortAnimalTreatmentsByDateDescending(animalSheetId, animalName);
+      
+      // Update caregiver if provided
+      if (caregiverName && caregiverName.trim()) {
+        try {
+          console.log(`Setting caregiver ${caregiverName} for animal ${animalName}`);
+          await setCaregiverForAnimal(animalTypeKey, animalName, caregiverName);
+        } catch (caregiverErr) {
+          console.error('Failed to set caregiver, but treatments were added:', caregiverErr);
+          // Continue anyway - treatments were already added successfully
+        }
+      }
+      
       return new Response(JSON.stringify(result), { status: 201, headers: CORS_HEADERS });
       
     } catch (err) {

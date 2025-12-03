@@ -99,6 +99,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
   const [caregiver, setCaregiver] = useState("");
   const [notes, setNotes] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [manualCase, setManualCase] = useState("");
 
   // Caregivers list (fetched from backend caregivers sheet)
   const [caregivers, setCaregivers] = useState<string[]>([]);
@@ -215,6 +216,12 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
       toast.error("נא למלא את כל השדות הנדרשים");
       return;
     }
+    
+    // Validate manual case if "other" is selected
+    if (treatmentType === 'other' && !manualCase.trim()) {
+      toast.error("נא להזין את סוג הטיפול");
+      return;
+    }
 
     // Build rows from mappedTreatments: for each grid entry, expand into N rows
     // where N = days * (number of times per day checked)
@@ -251,7 +258,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
             'body part': mt.bodyPart || '',
             duration,
             location: '',
-            case: mt.case || treatmentType,
+            case: treatmentType === 'other' ? manualCase : (mt.case || treatmentType),
             notes: notes || ''
           });
 
@@ -286,7 +293,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
       setIsProcessing(true);
       try {
         console.log('Sending rows to backend:', rowsToSend);
-        const res = await fetch(API_ENDPOINTS.treatmentsBulk(selectedAnimal, selectedAnimalType, { delete: 'FALSE' }), {
+        const res = await fetch(API_ENDPOINTS.treatmentsBulk(selectedAnimal, selectedAnimalType, { delete: 'FALSE', caregiver: caregiver || '' }), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ treatments: rowsToSend })
@@ -406,9 +413,12 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                   />
                 </div>
 
-                <div className={cn("space-y-2 md:col-span-1", !selectedAnimalType && "md:col-start-2")}>
+                <div className={cn("space-y-2", !selectedAnimalType && "md:col-start-2")}>
                   <Label htmlFor="treatment-type" className="text-right">סוג טיפול *</Label>
-                  <Select value={treatmentType} onValueChange={setTreatmentType} required>
+                  <Select value={treatmentType} onValueChange={(val) => {
+                    setTreatmentType(val);
+                    if (val !== 'other') setManualCase('');
+                  }} required>
                     <SelectTrigger id="treatment-type">
                       <SelectValue placeholder="בחר סוג טיפול" />
                     </SelectTrigger>
@@ -418,11 +428,28 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                           {t}
                         </SelectItem>
                       ))}
+                      <SelectItem value="other">אחר</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="space-y-2 md:col-span-1">
+                {/* Manual case input when "other" is selected */}
+                {treatmentType === 'other' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="manual-case" className="text-right">הזן סוג טיפול *</Label>
+                    <Input
+                      id="manual-case"
+                      type="text"
+                      value={manualCase}
+                      onChange={(e) => setManualCase(e.target.value)}
+                      placeholder="הזן את סוג הטיפול"
+                      className="text-right"
+                      required
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
                   <Label htmlFor="caregiver" className="text-right">שם המטפל/ת</Label>
                   <Select value={caregiver} onValueChange={setCaregiver}>
                     <SelectTrigger id="caregiver">
@@ -470,7 +497,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                     </div>
 
                     <div className="overflow-x-auto rounded border bg-white p-3">
-                      <table className="w-full text-sm table-fixed">
+                      <table className="w-full text-sm table-fixed" dir="rtl">
                         <thead>
                           <tr className="text-right">
                             <th className="px-2 py-1">תרופה</th>
@@ -490,6 +517,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                               <td className="px-2 py-2">
                                 <Input
                                   value={mt.medication}
+                                  className="text-right"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, medication: e.target.value } : p));
                                   }}
@@ -498,6 +526,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                               <td className="px-2 py-2">
                                 <Input
                                   value={mt.days}
+                                  className="text-right"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, days: e.target.value } : p));
                                   }}
@@ -506,6 +535,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                               <td className="px-2 py-2">
                                 <Input
                                   value={mt.frequency}
+                                  className="text-right"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, frequency: e.target.value } : p));
                                   }}
@@ -514,6 +544,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                               <td className="px-2 py-2">
                                 <Input
                                   value={mt.dosage}
+                                  className="text-right"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, dosage: e.target.value } : p));
                                   }}
@@ -522,6 +553,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                               <td className="px-2 py-2">
                                 <Input
                                   value={mt.bodyPart}
+                                  className="text-right"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, bodyPart: e.target.value } : p));
                                   }}

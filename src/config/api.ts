@@ -9,11 +9,12 @@ export const API_ENDPOINTS = {
     : `/api/treatments`,
   treatmentsProfile: (animalType: string, animalName: string) => `/api/treatments?profile=1&animalType=${encodeURIComponent(animalType)}&animalName=${encodeURIComponent(animalName)}`,
   treatmentsByType: (animalType: string) => `/api/treatments?animalType=${encodeURIComponent(animalType)}`,
-  treatmentsBulk: (animalName: string, animalType: string, options?: { delete?: string }) => {
+  treatmentsBulk: (animalName: string, animalType: string, options?: { delete?: string; caregiver?: string }) => {
     const params = new URLSearchParams({
       animalName,
       animalType,
-      ...(options?.delete && { delete: options.delete })
+      ...(options?.delete && { delete: options.delete }),
+      ...(options?.caregiver && { caregiver: options.caregiver })
     });
     return `/api/treatments/bulk?${params.toString()}`;
   },

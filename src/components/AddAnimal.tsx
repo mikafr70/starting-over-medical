@@ -126,7 +126,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-right">הוסף חיה חדשה</DialogTitle>
           <DialogDescription className="text-right">
@@ -134,12 +134,12 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
           {/* Animal Type */}
-          <div className="space-y-2">
-            <Label className="text-right block">סוג חיה *</Label>
+          <div className="space-y-1">
+            <Label className="text-right block text-sm">סוג חיה *</Label>
             <Select value={formData.animalType} onValueChange={(val) => handleChange('animalType', val)}>
-              <SelectTrigger className="text-right">
+              <SelectTrigger className="text-right h-9">
                 <SelectValue placeholder="בחר סוג חיה" />
               </SelectTrigger>
               <SelectContent dir="rtl">
@@ -153,191 +153,191 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
           </div>
 
           {/* Name and ID */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">שם *</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">שם *</Label>
               <Input
                 value={formData.name}
                 onChange={(e) => handleChange('name', e.target.value)}
                 placeholder="שם החיה"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">שבב</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">שבב</Label>
               <Input
                 value={formData.id}
                 onChange={(e) => handleChange('id', e.target.value)}
                 placeholder="מספר שבב"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>
 
           {/* All other fields from AnimalProfile */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">מין</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">מין</Label>
               <Input
                 value={formData.sex}
                 onChange={(e) => handleChange('sex', e.target.value)}
                 placeholder="מין"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">מיקום</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">מיקום</Label>
               <Input
                 value={formData.location}
                 onChange={(e) => handleChange('location', e.target.value)}
                 placeholder="מיקום"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">בטיפול</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">בטיפול</Label>
               <Input
                 value={formData.in_treatment}
                 onChange={(e) => handleChange('in_treatment', e.target.value)}
                 placeholder="בטיפול"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">שבב נוסף</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">שבב נוסף</Label>
               <Input
                 value={formData.id2}
                 onChange={(e) => handleChange('id2', e.target.value)}
                 placeholder="שבב נוסף"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">משקל</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">משקל</Label>
               <Input
                 value={formData.weight}
                 onChange={(e) => handleChange('weight', e.target.value)}
                 placeholder="משקל"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">תאריך הגעה</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">תאריך הגעה</Label>
               <Input
                 value={formData.arrival_date}
                 onChange={(e) => handleChange('arrival_date', e.target.value)}
                 placeholder="תאריך הגעה"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">תאריך לידה</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">תאריך לידה</Label>
               <Input
                 value={formData.birth_date}
                 onChange={(e) => handleChange('birth_date', e.target.value)}
                 placeholder="תאריך לידה"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">טילוף מיוחד</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">טילוף מיוחד</Label>
               <Input
                 value={formData.special_trimming}
                 onChange={(e) => handleChange('special_trimming', e.target.value)}
                 placeholder="טילוף מיוחד"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-right block">תיאור</Label>
+          <div className="space-y-1">
+            <Label className="text-right block text-sm">תיאור</Label>
             <Input
               value={formData.description}
               onChange={(e) => handleChange('description', e.target.value)}
               placeholder="תיאור"
-              className="text-right"
+              className="text-right h-9"
             />
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-right block">הערות</Label>
+          <div className="space-y-1">
+            <Label className="text-right block text-sm">הערות</Label>
             <Input
               value={formData.notes}
               onChange={(e) => handleChange('notes', e.target.value)}
               placeholder="הערות"
-              className="text-right"
+              className="text-right h-9"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">תרופות</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">תרופות</Label>
               <Input
                 value={formData.drugs}
                 onChange={(e) => handleChange('drugs', e.target.value)}
                 placeholder="תרופות"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">סירוס</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">סירוס</Label>
               <Input
                 value={formData.castration}
                 onChange={(e) => handleChange('castration', e.target.value)}
                 placeholder="סירוס"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">תילוע</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">תילוע</Label>
               <Input
                 value={formData.deworming}
                 onChange={(e) => handleChange('deworming', e.target.value)}
                 placeholder="תילוע"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">מקור</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">מקור</Label>
               <Input
                 value={formData.source}
                 onChange={(e) => handleChange('source', e.target.value)}
                 placeholder="מקור"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-right block">סטטוס</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">סטטוס</Label>
               <Input
                 value={formData.status}
                 onChange={(e) => handleChange('status', e.target.value)}
                 placeholder="סטטוס"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-right block">חברויות</Label>
+            <div className="space-y-1">
+              <Label className="text-right block text-sm">חברויות</Label>
               <Input
                 value={formData.friends}
                 onChange={(e) => handleChange('friends', e.target.value)}
                 placeholder="חברויות"
-                className="text-right"
+                className="text-right h-9"
               />
             </div>
           </div>

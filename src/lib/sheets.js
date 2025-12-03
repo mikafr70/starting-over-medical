@@ -988,10 +988,15 @@ export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) 
           console.log(`No treatment sheet found for animal ID: ${animal.id}`);
           continue;
         }
-        if((await hasTreatmentToday(spreadsheetId, todayStr)).hasTreatment) {
+        const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr);
+        if(hasTreatment) {
           animal.animalType = animalType;
+          // Get Hebrew display name for the animal type
+          animal.animalTypeHebrew = sheets[animalType].displayName;
+          // Collect all unique medical cases for this animal today
+          animal.medicalCases = [...new Set(treatmentTimes.map(t => t.medicalCase))].join(', ');
           animalsWithTodayTreatments.push(animal);
-          console.log(`Animal : ${animal.name} has treatment today.`);
+          console.log(`Animal : ${animal.name} has treatment today. Cases: ${animal.medicalCases}`);
         }
       }
       console.log(`Found Treatments today for ${animalsWithTodayTreatments.length} assigned animals for caregiver ${caregiverName} in type ${animalType}`);
@@ -1239,9 +1244,14 @@ export async function addAnimalToList(animalType, animalData) {
 
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0];
+    const sheetId = sheet.sheetId;
     
     await sheet.loadHeaderRow();
     const headers = sheet.headerValues;
+    
+    // Find the name column index for sorting
+    const nameColIndex = headers.findIndex(h => h && h.trim() === 'שם');
+    console.log('Name column index for sorting:', nameColIndex);
     
     // Create new row data
     const newRowData = {};
@@ -1254,42 +1264,50 @@ export async function addAnimalToList(animalType, animalData) {
     });
     
     // Add the new row
-    const newRow = await sheet.addRow(newRowData);
+    await sheet.addRow(newRowData);
+    console.log('Added new row for animal:', animalData.name);
     
-    // Get all rows including the new one
-    const allRows = await sheet.getRows();
-    
-    // Sort alphabetically by name (??)
-    const nameColIndex = headers.findIndex(h => h && h.trim() === '??');
+    // Sort the sheet alphabetically by name column using Google Sheets API
     if (nameColIndex !== -1) {
-      allRows.sort((a, b) => {
-        const nameA = (a._rawData[nameColIndex] || '').toString().trim().toLowerCase();
-        const nameB = (b._rawData[nameColIndex] || '').toString().trim().toLowerCase();
-        return nameA.localeCompare(nameB, 'he');
-      });
-      
-      // Update row positions
       const auth = getSheetsAuth();
       const sheetsApi = google.sheets({ version: 'v4', auth });
       
-      // Clear and rewrite the sheet
-      await sheetsApi.spreadsheets.values.clear({
-        spreadsheetId,
-        range: sheet.title + '!A2:Z' + (allRows.length + 1)
-      });
+      // Get the total number of rows
+      const rows = await sheet.getRows();
+      const totalRows = rows.length + 1; // +1 for header row
       
-      await sheetsApi.spreadsheets.values.update({
+      await sheetsApi.spreadsheets.batchUpdate({
         spreadsheetId,
-        range: sheet.title + '!A2:Z' + (allRows.length + 1),
-        valueInputOption: 'RAW',
         resource: {
-          values: allRows.map(row => row._rawData)
+          requests: [
+            {
+              sortRange: {
+                range: {
+                  sheetId: sheetId,
+                  startRowIndex: 1, // Skip header row
+                  endRowIndex: totalRows,
+                  startColumnIndex: 0,
+                  endColumnIndex: headers.length
+                },
+                sortSpecs: [
+                  {
+                    dimensionIndex: nameColIndex, // Sort by name column
+                    sortOrder: 'ASCENDING'
+                  }
+                ]
+              }
+            }
+          ]
         }
       });
+      
+      console.log('Sorted sheet alphabetically by name (column index:', nameColIndex, ')');
+    } else {
+      console.warn('Could not find name column (שם) for sorting');
     }
     
-    console.log('Animal ' + animalData.name + ' added successfully to ' + animalType + ' sheet');
-    return newRow;
+    console.log('Animal ' + animalData.name + ' added successfully to ' + animalType + ' sheet and sorted alphabetically');
+    return { success: true };
     
   } catch (error) {
     console.error('Error in addAnimalToList:', error);
@@ -1408,4 +1426,76 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
     );
     throw error;
   }
+}
+
+
+/*--------------------------------------------------
+ set caregiver for animal in main list
+---------------------------------------------------*/
+export async function setCaregiverForAnimal(animalType, animalName, caregiverName) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> setCaregiverForAnimal for animal: ${animalName} of type: ${animalType}, caregiver: ${caregiverName}`); 
+    const spreadsheetId = ANIMAL_TREATMENT_SHEETS()[animalType].sheetId;
+    
+    if (!spreadsheetId) {
+      throw new Error('No sheet ID found for animal type: ' + animalType);
+    }   
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];   
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    console.log('Headers from sheet:', headers); 
+    const nameColIndex = headers.findIndex(h => h && h.trim() === 'שם');
+    const caregiverColIndex = headers.findIndex(h => h && h.trim() === 'בטיפול');
+    console.log('Name column index:', nameColIndex);
+    console.log('Caregiver column index:', caregiverColIndex);
+    if (nameColIndex === -1) {
+      throw new Error(`Could not find 'שם' header in sheet ${spreadsheetId}`);
+    }
+    if (caregiverColIndex === -1) {
+      throw new Error(`Could not find 'מטפל' header in sheet ${spreadsheetId}`);
+    } 
+    const rows = await sheet.getRows();
+    let rowIndex = -1;
+    const targetName = (animalName).toString().trim();  
+    const targetRow = rows.find((row, i) => {
+      const cellValue = row._rawData?.[nameColIndex];
+      const rowName = (cellValue).toString().trim();  
+      rowIndex = i;
+      return rowName === targetName;
+    }
+    );
+    if (!targetRow) {
+      throw new Error(`Animal with name "${animalName}" not found in sheet ${spreadsheetId}`);
+    }
+    console.log(`Updating caregiver for animal "${animalName}" - adding:`, caregiverName);
+    const columnLetter = String.fromCharCode(65 + caregiverColIndex);
+    const cellsString = `A${rowIndex+1}:${columnLetter}${rowIndex+2}`;
+    await sheet.loadCells(cellsString);
+    const cell = sheet.getCell(rowIndex+1, caregiverColIndex);
+    
+    // Get existing caregivers and add the new one if not already present
+    const existingValue = (cell.value || '').toString().trim();
+    if (existingValue) {
+      // Split by comma, trim, and check if caregiver already exists
+      const existingCaregivers = existingValue.split(',').map(c => c.trim());
+      if (!existingCaregivers.includes(caregiverName.trim())) {
+        // Add new caregiver to the list
+        cell.value = existingValue + ', ' + caregiverName.trim();
+      } else {
+        console.log(`Caregiver ${caregiverName} already assigned to ${animalName}`);
+      }
+    } else {
+      // No existing caregivers, set the new one
+      cell.value = caregiverName.trim();
+    }
+    
+    await sheet.saveUpdatedCells();  
+    console.log(`Caregiver for animal ${animalName} updated successfully to ${caregiverName}.`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in setCaregiverForAnimal:', error);
+    throw error;
+  } 
 }
