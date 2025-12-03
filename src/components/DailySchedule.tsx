@@ -18,6 +18,7 @@ interface Treatment {
   time: string;
   timeSlot: string; // morning, noon, evening, general
   caregiver: string;
+  isCompleted?: boolean; // Add this field
 }
 
 interface DailyScheduleProps {
@@ -130,11 +131,24 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
             medicalCase: treatment.medicalCase || 'ללא תיאור',
             time: treatment.time,
             timeSlot: treatment.timeSlot,
-            caregiver: treatment.caregiver
+            caregiver: treatment.caregiver,
+            isCompleted: treatment.isCompleted || false
           }));
           
           setTreatments(formattedTreatments);
+          
+          // Initialize completed treatments from the API data
+          const initialCompleted = new Set<string>();
+          formattedTreatments.forEach(treatment => {
+            if (treatment.isCompleted) {
+              const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
+              initialCompleted.add(key);
+            }
+          });
+          setCompletedTreatments(initialCompleted);
+          
           console.log(`Loaded ${formattedTreatments.length} treatments from Google Sheets`);
+          console.log(`${initialCompleted.size} treatments already marked as completed`);
         } else {
           setError(data.error || 'Failed to fetch treatments');
           console.error('Failed to fetch treatments:', data.error);
@@ -271,23 +285,67 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     onSelectAnimal(treatment.animalType, treatment.animalName);
   };
 
-  const handleConfirmToggle = () => {
+  const handleConfirmToggle = async () => {
     if (!confirmDialog.treatmentKey) return;
     
-    const newCompletedTreatments = new Set(completedTreatments);
+    // Extract treatment info from the key
+    const [animalName, medicalCase, timeSlot] = confirmDialog.treatmentKey.split('_');
     
-    if (confirmDialog.isCompleted) {
-      // Unmarking as completed
-      newCompletedTreatments.delete(confirmDialog.treatmentKey);
-      toast.success("הטיפול סומן כממתין");
-    } else {
-      // Marking as completed
-      newCompletedTreatments.add(confirmDialog.treatmentKey);
-      toast.success("הטיפול סומן כבוצע");
+    // Find the treatment to get animalType
+    const treatment = treatments.find(t => 
+      `${t.animalName}_${t.medicalCase}_${t.timeSlot}` === confirmDialog.treatmentKey
+    );
+    
+    if (!treatment) {
+      toast.error('לא נמצא טיפול');
+      setConfirmDialog({ open: false, treatmentKey: null, isCompleted: false });
+      return;
     }
     
-    setCompletedTreatments(newCompletedTreatments);
-    setConfirmDialog({ open: false, treatmentKey: null, isCompleted: false });
+    const newCompletedState = !confirmDialog.isCompleted;
+    
+    try {
+      setIsProcessing(true);
+      
+      // Call API to update the Google Sheet
+      const response = await fetch('/api/treatments/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          animalName: treatment.animalName,
+          animalType: treatment.animalType,
+          medicalCase: treatment.medicalCase,
+          timeSlot: treatment.timeSlot,
+          isCompleted: newCompletedState
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update treatment');
+      }
+      
+      // Update local state only after successful API call
+      const newCompletedTreatments = new Set(completedTreatments);
+      
+      if (newCompletedState) {
+        newCompletedTreatments.add(confirmDialog.treatmentKey);
+        toast.success("הטיפול סומן כבוצע");
+      } else {
+        newCompletedTreatments.delete(confirmDialog.treatmentKey);
+        toast.success("הטיפול סומן כממתין");
+      }
+      
+      setCompletedTreatments(newCompletedTreatments);
+      
+    } catch (error) {
+      console.error('Error updating treatment:', error);
+      toast.error('שגיאה בעדכון הטיפול');
+    } finally {
+      setIsProcessing(false);
+      setConfirmDialog({ open: false, treatmentKey: null, isCompleted: false });
+    }
   };
 
   const handleCancelToggle = () => {

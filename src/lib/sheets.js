@@ -605,8 +605,8 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
     const sheet = doc.sheetsByIndex[0];
     const sheetId = sheet.sheetId;
 
-    console.log(`rowData - ${JSON.stringify(rowData[1])}`);
-    console.log(`checkboxes values: morning - ${rowData[1].morning} , noon - ${rowData[1].noon} , evening - ${rowData[1].evening}`);
+    console.log(`rowData - ${JSON.stringify(rowData[0])}`);
+    console.log(`checkboxes values: morning - ${rowData[0].morning} , noon - ${rowData[0].noon} , evening - ${rowData[0].evening}`);
 
     const auth = getSheetsAuth();
     const sheetsApi = google.sheets({ version: 'v4', auth });
@@ -1039,7 +1039,7 @@ export async function hasTreatmentToday(sheetId, todayStr) {
   const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
   const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
   const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
-  const caseCol = headerMap['מקרה'] !== undefined ? headerMap['מקרה'] : 10;
+  const caseCol = headerMap['סיבת טיפול'] !== undefined ? headerMap['סיבת טיפול'] : 10;
   
   try {  
     for(const row of rows) {
@@ -1059,14 +1059,29 @@ export async function hasTreatmentToday(sheetId, todayStr) {
         const eveningValue = row._rawData?.[eveningCol];
         const medicalCase = row._rawData?.[caseCol] || 'ללא תיאור';
         
-        if(morningValue === false || morningValue === 'FALSE') {
-          treatmentTimes.push({ timeSlot: 'morning', medicalCase });
+        // Check morning: false/FALSE = needs treatment (not completed), true/TRUE = completed
+        if(morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') {
+          treatmentTimes.push({ 
+            timeSlot: 'morning', 
+            medicalCase,
+            isCompleted: morningValue === true || morningValue === 'TRUE'
+          });
         }
-        if(noonValue === false || noonValue === 'FALSE') {
-          treatmentTimes.push({ timeSlot: 'noon', medicalCase });
+        // Check noon
+        if(noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') {
+          treatmentTimes.push({ 
+            timeSlot: 'noon', 
+            medicalCase,
+            isCompleted: noonValue === true || noonValue === 'TRUE'
+          });
         }
-        if(eveningValue === false || eveningValue === 'FALSE') {
-          treatmentTimes.push({ timeSlot: 'evening', medicalCase });
+        // Check evening
+        if(eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE') {
+          treatmentTimes.push({ 
+            timeSlot: 'evening', 
+            medicalCase,
+            isCompleted: eveningValue === true || eveningValue === 'TRUE'
+          });
         }
         
         // If all time-specific treatments are blank, it's a general treatment

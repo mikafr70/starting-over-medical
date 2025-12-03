@@ -66,7 +66,8 @@ export async function GET() {
                 time: getTimeBySlot(timeInfo.timeSlot),
                 timeSlot: timeInfo.timeSlot, // morning, noon, evening, general
                 caregiver: "נקבע לפי זמינות",
-                emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji
+                emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
+                isCompleted: timeInfo.isCompleted || false
               };
               
               allTreatments.push(treatment);
