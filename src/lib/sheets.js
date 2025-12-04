@@ -1193,7 +1193,7 @@ export async function updateAnimalInList(animalType, animalName, updateData = {}
 /*-----------------------------------------------
   function to collect each file that was edited in the last two weeks by folder id and check if each file has treatments today
   ----------------------------------------------*/
-export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId) {
+export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId, targetDate = null) {
   try {
     await ensureConfigLoaded();
     console.log('>>> getRecentlyEditedFilesInFolderWithTreatmentsToday...');
@@ -1205,9 +1205,9 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     //twoWeeksAgo.setDate(twoWeeksAgo.getDate());
     const twoWeeksAgoISO = twoWeeksAgo.toISOString();
     
-    // Create today's date string in DD/MM/YYYY format to match sheet format
-    const todayDate = new Date();
-    const todayStr = `${todayDate.getDate()}/${todayDate.getMonth() + 1}/${todayDate.getFullYear()}`;
+    // Use provided date or default to today
+    const dateToCheck = targetDate ? new Date(targetDate) : new Date();
+    const dateStr = `${dateToCheck.getDate()}/${dateToCheck.getMonth() + 1}/${dateToCheck.getFullYear()}`;
     
     // list file names in folder modified in last two weeks 
     const tempResponse = await drive.files.list({
@@ -1216,7 +1216,7 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
       spaces: 'drive'
     });
     for (const file of tempResponse.data.files) {
-      const { hasTreatment,treatmentTimes} = await hasTreatmentToday(file.id, todayStr);
+      const { hasTreatment,treatmentTimes} = await hasTreatmentToday(file.id, dateStr);
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       if (hasTreatment) {
@@ -1469,30 +1469,46 @@ export async function setCaregiverForAnimal(animalType, animalName, caregiverNam
     if (!targetRow) {
       throw new Error(`Animal with name "${animalName}" not found in sheet ${spreadsheetId}`);
     }
-    console.log(`Updating caregiver for animal "${animalName}" - adding:`, caregiverName);
+    
+    // Handle "כללי" (general) - add all caregivers
+    let caregiverToAdd = caregiverName;
+    if (caregiverName.trim() === 'כללי') {
+      console.log('General caregiver selected - fetching all caregivers');
+      const allCaregivers = await getAllCaregivers();
+      caregiverToAdd = allCaregivers.join(', ');
+      console.log(`Setting all caregivers: ${caregiverToAdd}`);
+    }
+    
+    console.log(`Updating caregiver for animal "${animalName}" - adding:`, caregiverToAdd);
     const columnLetter = String.fromCharCode(65 + caregiverColIndex);
     const cellsString = `A${rowIndex+1}:${columnLetter}${rowIndex+2}`;
     await sheet.loadCells(cellsString);
     const cell = sheet.getCell(rowIndex+1, caregiverColIndex);
     
-    // Get existing caregivers and add the new one if not already present
-    const existingValue = (cell.value || '').toString().trim();
-    if (existingValue) {
-      // Split by comma, trim, and check if caregiver already exists
-      const existingCaregivers = existingValue.split(',').map(c => c.trim());
-      if (!existingCaregivers.includes(caregiverName.trim())) {
-        // Add new caregiver to the list
-        cell.value = existingValue + ', ' + caregiverName.trim();
-      } else {
-        console.log(`Caregiver ${caregiverName} already assigned to ${animalName}`);
-      }
+    // If "כללי" was selected, replace all caregivers
+    if (caregiverName.trim() === 'כללי') {
+      cell.value = caregiverToAdd;
+      console.log(`Set all caregivers for ${animalName}`);
     } else {
-      // No existing caregivers, set the new one
-      cell.value = caregiverName.trim();
+      // Get existing caregivers and add the new one if not already present
+      const existingValue = (cell.value || '').toString().trim();
+      if (existingValue) {
+        // Split by comma, trim, and check if caregiver already exists
+        const existingCaregivers = existingValue.split(',').map(c => c.trim());
+        if (!existingCaregivers.includes(caregiverToAdd.trim())) {
+          // Add new caregiver to the list
+          cell.value = existingValue + ', ' + caregiverToAdd.trim();
+        } else {
+          console.log(`Caregiver ${caregiverToAdd} already assigned to ${animalName}`);
+        }
+      } else {
+        // No existing caregivers, set the new one
+        cell.value = caregiverToAdd.trim();
+      }
     }
     
     await sheet.saveUpdatedCells();  
-    console.log(`Caregiver for animal ${animalName} updated successfully to ${caregiverName}.`);
+    console.log(`Caregiver for animal ${animalName} updated successfully to ${caregiverToAdd}.`);
     return { success: true };
   } catch (error) {
     console.error('Error in setCaregiverForAnimal:', error);

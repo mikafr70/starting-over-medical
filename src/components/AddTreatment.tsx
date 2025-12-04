@@ -456,6 +456,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                       <SelectValue placeholder="בחר מטפל/ת (אופציונלי)" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="כללי">כללי (כל המטפלים)</SelectItem>
                       {caregivers.length === 0 ? (
                         <div className="px-2 py-2 text-gray-500">אין מטפלים זמינים</div>
                       ) : (
@@ -471,7 +472,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
 
                 {/* Editable grid: show only after a treatment type is selected */}
                 {treatmentType && (
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-2 space-y-2">
                     <div className="flex justify-end mb-2">
                       <Button
                         type="button"
@@ -496,94 +497,98 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                       </Button>
                     </div>
 
-                    <div className="overflow-x-auto rounded border bg-white p-3">
-                      <table className="w-full text-sm table-fixed" dir="rtl">
-                        <thead>
+                    <div className="w-full overflow-x-scroll border rounded bg-white" style={{ maxHeight: 'none' }}>
+                      <table className="w-max text-sm border-collapse" dir="rtl" style={{ tableLayout: 'auto' }}>
+                        <thead className="sticky top-0 bg-gray-50">
                           <tr className="text-right">
-                            <th className="px-2 py-1">תרופה</th>
-                            <th className="px-2 py-1">ימים</th>
-                            <th className="px-2 py-1">תדירות</th>
-                            <th className="px-2 py-1">מינון</th>
-                            <th className="px-2 py-1">מתן</th>
-                            <th className="px-2 py-1">בוקר</th>
-                            <th className="px-2 py-1">צהריים</th>
-                            <th className="px-2 py-1">ערב</th>
-                            <th className="px-2 py-1"> </th>
+                            <th className="px-3 py-2 border-b font-semibold w-40">תרופה</th>
+                            <th className="px-3 py-2 border-b font-semibold w-24">ימים</th>
+                            <th className="px-3 py-2 border-b font-semibold w-24">תדירות</th>
+                            <th className="px-3 py-2 border-b font-semibold w-32">מינון</th>
+                            <th className="px-3 py-2 border-b font-semibold w-32">מתן</th>
+                            <th className="px-3 py-2 border-b font-semibold w-24 text-center">בוקר</th>
+                            <th className="px-3 py-2 border-b font-semibold w-24 text-center">צהריים</th>
+                            <th className="px-3 py-2 border-b font-semibold w-24 text-center">ערב</th>
+                            <th className="px-3 py-2 border-b font-semibold w-28"></th>
                           </tr>
                         </thead>
                         <tbody>
                           {visibleMappedTreatments.map((mt) => (
-                            <tr key={mt.id ?? `${mt.case}-${Math.random()}`} className="border-t">
-                              <td className="px-2 py-2">
+                            <tr key={mt.id ?? `${mt.case}-${Math.random()}`} className="border-b hover:bg-gray-50">
+                              <td className="px-3 py-3">
                                 <Input
                                   value={mt.medication}
-                                  className="text-right"
+                                  className="text-right w-full"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, medication: e.target.value } : p));
                                   }}
                                 />
                               </td>
-                              <td className="px-2 py-2">
+                              <td className="px-3 py-3">
                                 <Input
                                   value={mt.days}
-                                  className="text-right"
+                                  className="text-right w-full"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, days: e.target.value } : p));
                                   }}
                                 />
                               </td>
-                              <td className="px-2 py-2">
+                              <td className="px-3 py-3">
                                 <Input
                                   value={mt.frequency}
-                                  className="text-right"
+                                  className="text-right w-full"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, frequency: e.target.value } : p));
                                   }}
                                 />
                               </td>
-                              <td className="px-2 py-2">
+                              <td className="px-3 py-3">
                                 <Input
                                   value={mt.dosage}
-                                  className="text-right"
+                                  className="text-right w-full"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, dosage: e.target.value } : p));
                                   }}
                                 />
                               </td>
-                              <td className="px-2 py-2">
+                              <td className="px-3 py-3">
                                 <Input
                                   value={mt.bodyPart}
-                                  className="text-right"
+                                  className="text-right w-full"
                                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                                     setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, bodyPart: e.target.value } : p));
                                   }}
                                 />
                               </td>
-                              <td className="px-2 py-2 text-center">
+                              <td className="px-3 py-3 text-center">
                                 <input
                                   type="checkbox"
+                                  className="w-5 h-5 cursor-pointer"
                                   checked={String(mt.morning) !== '' && mt.morning !== '0'}
                                   onChange={(e) => setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, morning: e.target.checked ? '1' : '' } : p))}
                                 />
                               </td>
-                              <td className="px-2 py-2 text-center">
+                              <td className="px-3 py-3 text-center">
                                 <input
                                   type="checkbox"
+                                  className="w-5 h-5 cursor-pointer"
                                   checked={String(mt.noon) !== '' && mt.noon !== '0'}
                                   onChange={(e) => setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, noon: e.target.checked ? '1' : '' } : p))}
                                 />
                               </td>
-                              <td className="px-2 py-2 text-center">
+                              <td className="px-3 py-3 text-center">
                                 <input
                                   type="checkbox"
+                                  className="w-5 h-5 cursor-pointer"
                                   checked={String(mt.evening) !== '' && mt.evening !== '0'}
                                   onChange={(e) => setMappedTreatments(prev => prev.map(p => p.id === mt.id ? { ...p, evening: e.target.checked ? '1' : '' } : p))}
                                 />
                               </td>
-                              <td className="px-2 py-2 text-center">
+                              <td className="px-3 py-3 text-center">
                                 <Button
                                   type="button"
                                   variant="outline"
+                                  size="sm"
                                   onClick={() => setMappedTreatments(prev => prev.filter(p => p.id !== mt.id))}
                                 >
                                   הסר
@@ -597,7 +602,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                   </div>
                 )}
 
-                <div className="space-y-2 md:col-span-2">
+                <div className="md:col-span-2 space-y-2">
                   <Label htmlFor="notes" className="text-right">הערות</Label>
                   <Textarea
                     id="notes"

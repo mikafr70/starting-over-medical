@@ -8,14 +8,32 @@ export const fetchCache = 'force-no-store';  // don't cache in the static cache
 export const revalidate = 0;                 // disable ISR if present
 
 export async function GET() {
+  const requestId = Math.random().toString(36).substring(7);
+  console.log(`\n${'='.repeat(80)}`);
+  console.log(`🔵 NEW API REQUEST [${requestId}] - Starting to fetch treatments`);
+  console.log(`${'='.repeat(80)}\n`);
+  
   try {
     await ensureConfigLoaded();
 
     const allTreatments = [];
     
-    console.log('Starting to fetch treatments for today...');
+    console.log('Starting to fetch treatments for yesterday, today, and tomorrow...');
 
-    // Loop over all animal types and get treatments for today
+    // Calculate yesterday, today, and tomorrow dates
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    
+    const datesToFetch = [
+      { date: yesterday, label: 'yesterday' },
+      { date: today, label: 'today' },
+      { date: tomorrow, label: 'tomorrow' }
+    ];
+
+    // Loop over all animal types and get treatments for all three days
     for (const animalType of Object.keys(ANIMAL_TREATMENT_SHEETS())) {
       if (!ANIMAL_TREATMENT_SHEETS()[animalType].folderId) {
         console.log(`Skipping ${animalType} - no folder ID configured`);
@@ -23,63 +41,70 @@ export async function GET() {
       }
 
       console.log(`Fetching treatments for ${animalType} from folder ${ANIMAL_TREATMENT_SHEETS()[animalType].folderId}`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      try {
-        const result = await getRecentlyEditedFilesInFolderWithTreatmentsToday(ANIMAL_TREATMENT_SHEETS()[animalType].folderId);
-        console.log (`Received ${result.length} entries for ${animalType}`);
-        if(result.length > 0) {
-          //console.log('###### Entries:', result);
-        }
-        // The function returns an array like [fileName1, treatmentTimes1, fileName2, treatmentTimes2, ...]
-        // Let's process this data properly
-        for (let i = 0; i < result.length; i += 2) {
-          const fileName = result[i];
-          const treatmentTimes = result[i + 1] || [];
+      
+      // Fetch treatments for each date
+      for (const { date, label } of datesToFetch) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+          const result = await getRecentlyEditedFilesInFolderWithTreatmentsToday(
+            ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
+            date
+          );
+          console.log(`Received ${result.length} entries for ${animalType} on ${label}`);
           
-          if (fileName && treatmentTimes.length > 0) {
-            // Extract animal name from filename
-            // Format: "עותק של <name> <id>" or just "<name> <id>" or "<name>.xlsx"
-            let animalName = fileName
-              .replace('.xlsx', '')
-              .replace('.xls', '')
-              .replace(/^עותק של\s+/i, '') // Remove "עותק של " prefix
-              .trim();
+          // The function returns an array like [fileName1, treatmentTimes1, fileName2, treatmentTimes2, ...]
+          for (let i = 0; i < result.length; i += 2) {
+            const fileName = result[i];
+            const treatmentTimes = result[i + 1] || [];
             
-            // Remove the ID number at the end if present (e.g., "939000007662875")
-            animalName = animalName.replace(/\s+\d{15}$/, '').trim();
-            
-            // If still no name extracted, use the filename as-is
-            if (!animalName) {
-              animalName = fileName.replace('.xlsx', '').replace('.xls', '');
-            }
-            
-            // Create a treatment entry for each time slot
-            treatmentTimes.forEach(timeInfo => {
-              const treatment = {
-                id: `${animalType}_${fileName}_${timeInfo.timeSlot}_${Date.now()}_${Math.random()}`,
-                animalName: animalName,
-                animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
-                animalTypeKey: animalType,
-                animalImage: `/animal-avatars/${animalName.toLowerCase()}.jpg`,
-                medicalCase: timeInfo.medicalCase || 'ללא תיאור',
-                treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
-                time: getTimeBySlot(timeInfo.timeSlot),
-                timeSlot: timeInfo.timeSlot, // morning, noon, evening, general
-                caregiver: "נקבע לפי זמינות",
-                emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
-                isCompleted: timeInfo.isCompleted || false
-              };
+            if (fileName && treatmentTimes.length > 0) {
+              // Extract animal name from filename
+              let animalName = fileName
+                .replace('.xlsx', '')
+                .replace('.xls', '')
+                .replace(/^עותק של\s+/i, '') // Remove "עותק של " prefix
+                .trim();
               
-              allTreatments.push(treatment);
-            });
+              // Remove the ID number at the end if present
+              animalName = animalName.replace(/\s+\d{15}$/, '').trim();
+              
+              if (!animalName) {
+                animalName = fileName.replace('.xlsx', '').replace('.xls', '');
+              }
+              
+              // Create a treatment entry for each time slot
+              treatmentTimes.forEach(timeInfo => {
+                const treatment = {
+                  id: `${animalType}_${fileName}_${timeInfo.timeSlot}_${label}_${Math.random()}`,
+                  animalName: animalName,
+                  animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
+                  animalTypeKey: animalType,
+                  animalImage: `/animal-avatars/${animalName.toLowerCase()}.jpg`,
+                  medicalCase: timeInfo.medicalCase || 'ללא תיאור',
+                  treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
+                  time: getTimeBySlot(timeInfo.timeSlot),
+                  timeSlot: timeInfo.timeSlot,
+                  caregiver: "נקבע לפי זמינות",
+                  emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
+                  isCompleted: timeInfo.isCompleted || false,
+                  treatmentDate: date.toISOString().split('T')[0], // Add date field
+                  dateLabel: label // Add label field (yesterday/today/tomorrow)
+                };
+                
+                allTreatments.push(treatment);
+              });
+            }
           }
+        } catch (error) {
+          console.error(`Error fetching treatments for ${animalType} on ${label}:`, error);
         }
-      } catch (error) {
-        console.error(`Error fetching treatments for ${animalType}:`, error);
       }
     }
 
-    console.log(`Found ${allTreatments.length} total treatments for today`);
+    console.log(`Found ${allTreatments.length} total treatments for yesterday, today, and tomorrow`);
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`✅ API REQUEST [${requestId}] COMPLETE - Returning ${allTreatments.length} treatments`);
+    console.log(`${'='.repeat(80)}\n`);
     
     return Response.json({
       success: true,
@@ -88,7 +113,7 @@ export async function GET() {
     });
 
   } catch (error) {
-    console.error('Error fetching today\'s treatments:', error);
+    console.error(`❌ API REQUEST ERROR:`, error);
     return Response.json({
       success: false,
       error: error.message,

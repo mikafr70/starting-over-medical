@@ -106,7 +106,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-8 rounded-lg shadow-xl flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
-            <p className="text-lg font-semibold">מעבד...</p>
+            <p className="text-lg font-semibold"></p>
           </div>
         </div>
       )}

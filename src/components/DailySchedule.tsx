@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -7,6 +7,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { toast } from "sonner";
+
+// Global singleton to prevent duplicate API calls across component remounts
+let globalFetchPromise: Promise<any> | null = null;
+let globalFetchData: any = null;
 
 interface Treatment {
   id: number;
@@ -18,7 +22,9 @@ interface Treatment {
   time: string;
   timeSlot: string; // morning, noon, evening, general
   caregiver: string;
-  isCompleted?: boolean; // Add this field
+  isCompleted?: boolean;
+  treatmentDate?: string; // ISO date string (YYYY-MM-DD)
+  dateLabel?: string; // yesterday, today, tomorrow
 }
 
 interface DailyScheduleProps {
@@ -109,17 +115,91 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
   const selectedDay = scheduleDays[selectedDayIndex];
 
-  // Fetch treatments from API
+  // Fetch treatments from API with global deduplication
   useEffect(() => {
     const fetchTreatments = async () => {
       try {
         setLoading(true);
         setError(null);
         
-        const response = await fetch('/api/treatments/today');
-        const data = await response.json();
+        // Check if we already have cached data
+        if (globalFetchData) {
+          console.log('✨ Using cached treatment data');
+          const data = globalFetchData;
+          
+          const formattedTreatments: Treatment[] = data.treatments.map((treatment: any) => ({
+            id: Math.abs(hashCode(treatment.id)),
+            animalName: treatment.animalName,
+            animalType: treatment.animalType,
+            animalImage: treatment.animalImage,
+            treatmentType: treatment.treatmentType,
+            medicalCase: treatment.medicalCase || 'ללא תיאור',
+            time: treatment.time,
+            timeSlot: treatment.timeSlot,
+            caregiver: treatment.caregiver,
+            isCompleted: treatment.isCompleted || false,
+            treatmentDate: treatment.treatmentDate,
+            dateLabel: treatment.dateLabel
+          }));
+          
+          setTreatments(formattedTreatments);
+          
+          const initialCompleted = new Set<string>();
+          formattedTreatments.forEach(treatment => {
+            if (treatment.isCompleted) {
+              const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
+              initialCompleted.add(key);
+            }
+          });
+          setCompletedTreatments(initialCompleted);
+          setLoading(false);
+          return;
+        }
+        
+        // Check if a fetch is already in progress
+        if (globalFetchPromise) {
+          console.log('⏳ Waiting for existing API call to complete...');
+          const data = await globalFetchPromise;
+          
+          const formattedTreatments: Treatment[] = data.treatments.map((treatment: any) => ({
+            id: Math.abs(hashCode(treatment.id)),
+            animalName: treatment.animalName,
+            animalType: treatment.animalType,
+            animalImage: treatment.animalImage,
+            treatmentType: treatment.treatmentType,
+            medicalCase: treatment.medicalCase || 'ללא תיאור',
+            time: treatment.time,
+            timeSlot: treatment.timeSlot,
+            caregiver: treatment.caregiver,
+            isCompleted: treatment.isCompleted || false,
+            treatmentDate: treatment.treatmentDate,
+            dateLabel: treatment.dateLabel
+          }));
+          
+          setTreatments(formattedTreatments);
+          
+          const initialCompleted = new Set<string>();
+          formattedTreatments.forEach(treatment => {
+            if (treatment.isCompleted) {
+              const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
+              initialCompleted.add(key);
+            }
+          });
+          setCompletedTreatments(initialCompleted);
+          setLoading(false);
+          return;
+        }
+        
+        // Start new fetch and store the promise globally
+        console.log('🚀 Making new API call for 3 days of treatments...');
+        globalFetchPromise = fetch('/api/treatments/today').then(res => res.json());
+        
+        const data = await globalFetchPromise;
         
         if (data.success) {
+          // Cache the data globally
+          globalFetchData = data;
+          
           console.log('Fetched treatments data:', data);
           // Convert API data to our Treatment interface
           const formattedTreatments: Treatment[] = data.treatments.map((treatment: any) => ({
@@ -132,8 +212,12 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
             time: treatment.time,
             timeSlot: treatment.timeSlot,
             caregiver: treatment.caregiver,
-            isCompleted: treatment.isCompleted || false
+            isCompleted: treatment.isCompleted || false,
+            treatmentDate: treatment.treatmentDate,
+            dateLabel: treatment.dateLabel
           }));
+          
+          console.log('Formatted treatments with dates:', formattedTreatments.slice(0, 3));
           
           setTreatments(formattedTreatments);
           
@@ -150,10 +234,14 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
           console.log(`Loaded ${formattedTreatments.length} treatments from Google Sheets`);
           console.log(`${initialCompleted.size} treatments already marked as completed`);
         } else {
+          globalFetchPromise = null; // Clear on error to allow retry
+          globalFetchData = null;
           setError(data.error || 'Failed to fetch treatments');
           console.error('Failed to fetch treatments:', data.error);
         }
       } catch (err) {
+        globalFetchPromise = null; // Clear on error to allow retry
+        globalFetchData = null;
         setError('Failed to connect to server');
         console.error('Error fetching treatments:', err);
       } finally {
@@ -177,8 +265,17 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
   // Group treatments by animal+case combination, then by time section
   const groupedTreatments = (() => {
+    // Filter treatments by selected date first
+    const selectedDateStr = selectedDay.dateObj.toISOString().split('T')[0];
+    console.log('Selected date string:', selectedDateStr);
+    console.log('Total treatments before filtering:', treatments.length);
+    console.log('Sample treatment dates:', treatments.slice(0, 3).map(t => ({ name: t.animalName, date: t.treatmentDate })));
+    
+    const filteredByDate = treatments.filter(t => t.treatmentDate === selectedDateStr);
+    console.log('Treatments after date filtering:', filteredByDate.length);
+    
     // First, group by animal name + medical case to combine multiple time slots
-    const byAnimalCase = treatments
+    const byAnimalCase = filteredByDate
       .filter(treatment => treatment.timeSlot !== 'general')
       .reduce((acc, treatment) => {
         const key = `${treatment.animalName}_${treatment.medicalCase}`;
@@ -231,8 +328,11 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     }, {} as Record<string, (Treatment & { timeSlots: string[] })[]>);
   })();
 
-  // Get all treatments for the overview (right side) - includes general treatments
-  const overviewTreatments = treatments;
+  // Get all treatments for the overview (right side) - filter by selected date and exclude general treatments
+  const selectedDateStr = selectedDay.dateObj.toISOString().split('T')[0];
+  const overviewTreatments = treatments.filter(t => 
+    t.treatmentDate === selectedDateStr && t.timeSlot !== 'general'
+  );
 
   const nextDay = () => {
     if (selectedDayIndex < scheduleDays.length - 1) {
@@ -419,7 +519,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-8 rounded-lg shadow-xl flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
-            <p className="text-lg font-semibold">מעבד...</p>
+            <p className="text-lg font-semibold"></p>
           </div>
         </div>
       )}
@@ -432,8 +532,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         {/* Loading State */}
         {loading && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin" />
-            <span className="ml-2">טוען טיפולים מגוגל שיטס...</span>
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <span className="ml-2"></span>
           </div>
         )}
 
@@ -444,185 +544,96 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
           </div>
         )}
 
-        {/* Split Layout Container */}
+        {/* Full Width Schedule */}
         {!loading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left Side: Current Schedule View */}
-            <div className="space-y-6">
-              <Card className="mb-6">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={prevDay}
-                      disabled={selectedDayIndex === 0}
-                    >
-                      <ChevronRight className="w-5 h-5" />
-                    </Button>
+          <div className="space-y-6">
+            <Card className="mb-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={prevDay}
+                    disabled={selectedDayIndex === 0}
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </Button>
 
-                    <div className="text-center">
-                      <CardTitle className="flex items-center justify-center gap-2">
-                        <CalendarIcon className="w-5 h-5" />
-                        {selectedDay.day}, {selectedDay.date}
-                      </CardTitle>
-                      {selectedDay.isToday && (
-                        <Badge className="mt-2" style={{ backgroundColor: '#CFE4D3', color: '#333333' }}>
-                          היום
-                        </Badge>
-                      )}
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={nextDay}
-                      disabled={selectedDayIndex === scheduleDays.length - 1}
-                    >
-                      <ChevronLeft className="w-5 h-5" />
-                    </Button>
+                  <div className="text-center">
+                    <CardTitle className="flex items-center justify-center gap-2">
+                      <CalendarIcon className="w-5 h-5" />
+                      {selectedDay.day}, {selectedDay.date}
+                    </CardTitle>
+                    {selectedDay.isToday && (
+                      <Badge className="mt-2" style={{ backgroundColor: '#CFE4D3', color: '#333333' }}>
+                        היום
+                      </Badge>
+                    )}
                   </div>
-                </CardHeader>
-              </Card>
 
-              {treatments.filter(t => t.timeSlot !== 'general').length === 0 ? (
-                <Card>
-                  <CardContent className="py-12 text-center text-muted-foreground">
-                    אין טיפולים מתוכננים ליום זה
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-6">
-                  {timeSections.map((section) => {
-                    const sectionTreatments = groupedTreatments[section.id];
-                    const Icon = section.icon;
-
-                    return (
-                      <div key={section.id} className="rounded-xl overflow-hidden border" style={{ borderColor: '#E7E7E7' }}>
-                        <div 
-                          className="p-4 border-b" 
-                          style={{ 
-                            backgroundColor: section.headerBgColor,
-                            borderColor: '#E7E7E7'
-                          }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <Icon className="w-6 h-6" style={{ color: '#A67C52' }} />
-                            <div>
-                              <h3 className="text-right">{section.title}</h3>
-                            </div>
-                            <Badge variant="outline" className="mr-auto">
-                              {sectionTreatments?.length || 0} טיפולים
-                            </Badge>
-                          </div>
-                        </div>
-
-                        <div 
-                          className="p-4"
-                          style={{ backgroundColor: section.bgColor }}
-                        >
-                          {!sectionTreatments || sectionTreatments.length === 0 ? (
-                            <div className="text-center py-8 text-muted-foreground">
-                              אין טיפולים מתוכננים ב{section.title.toLowerCase()}
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                              {sectionTreatments.map(renderTreatment)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={nextDay}
+                    disabled={selectedDayIndex === scheduleDays.length - 1}
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </Button>
                 </div>
-              )}
-            </div>
+              </CardHeader>
+            </Card>
 
-            {/* Right Side: Overall Treatments for Today */}
-            <div className="space-y-6">
+            {treatments.filter(t => t.timeSlot !== 'general').length === 0 ? (
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-right">טיפולים כלליים להיום</CardTitle>
-                  <CardDescription className="text-right">
-                    סקירה כללית של כל הטיפולים המתוכננים ל-{selectedDay.date}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {/* Statistics */}
-                    <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-green-600">
-                          {overviewTreatments.filter(t => {
-                            const key = `${t.animalName}_${t.medicalCase}_${t.timeSlot}`;
-                            return completedTreatments.has(key);
-                          }).length}
-                        </div>
-                        <div className="text-sm text-gray-600">בוצעו</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-orange-600">
-                          {overviewTreatments.filter(t => {
-                            const key = `${t.animalName}_${t.medicalCase}_${t.timeSlot}`;
-                            return !completedTreatments.has(key);
-                          }).length}
-                        </div>
-                        <div className="text-sm text-gray-600">ממתינים</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-blue-600">{overviewTreatments.length}</div>
-                        <div className="text-sm text-gray-600">סה"כ</div>
-                      </div>
-                    </div>
-
-                    {/* Treatment Overview by Animal */}
-                    <div className="space-y-3">
-                      <h3 className="font-semibold text-right">טיפולים לפי חיה</h3>
-                      {overviewTreatments.length === 0 ? (
-                        <div className="text-center py-8 text-muted-foreground">
-                          אין טיפולים להיום
-                        </div>
-                      ) : (
-                        Object.entries(
-                          overviewTreatments.reduce((acc, treatment) => {
-                            const key = treatment.animalName;
-                            if (!acc[key]) acc[key] = [];
-                            acc[key].push(treatment);
-                            return acc;
-                          }, {} as Record<string, Treatment[]>)
-                        ).map(([animalName, animalTreatments]) => (
-                          <div key={animalName} className="p-3 border rounded-lg bg-white">
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="font-medium">{animalName}</h4>
-                              <Badge variant="outline">
-                                {animalTreatments.length} טיפולים
-                              </Badge>
-                            </div>
-                            <div className="space-y-1">
-                              {animalTreatments.map(treatment => {
-                                const treatmentKey = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
-                                return (
-                                  <div key={treatment.id} className="flex items-center justify-between text-sm">
-                                    <span>{treatment.medicalCase}</span>
-                                    <div className="flex items-center gap-1">
-                                      {completedTreatments.has(treatmentKey) ? (
-                                        <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                      ) : (
-                                        <Clock className="w-4 h-4 text-orange-500" />
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  אין טיפולים מתוכננים ליום זה
                 </CardContent>
               </Card>
-            </div>
+            ) : (
+              <div className="space-y-6">
+                {timeSections.map((section) => {
+                  const sectionTreatments = groupedTreatments[section.id];
+                  const Icon = section.icon;
+
+                  return (
+                    <div key={section.id} className="rounded-xl overflow-hidden border" style={{ borderColor: '#E7E7E7' }}>
+                      <div 
+                        className="p-4 border-b" 
+                        style={{ 
+                          backgroundColor: section.headerBgColor,
+                          borderColor: '#E7E7E7'
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className="w-6 h-6" style={{ color: '#A67C52' }} />
+                          <div>
+                            <h3 className="text-right">{section.title}</h3>
+                          </div>
+                          <Badge variant="outline" className="mr-auto">
+                            {sectionTreatments?.length || 0} טיפולים
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div 
+                        className="p-4"
+                        style={{ backgroundColor: section.bgColor }}
+                      >
+                        {!sectionTreatments || sectionTreatments.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            אין טיפולים מתוכננים ב{section.title.toLowerCase()}
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {sectionTreatments.map(renderTreatment)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
         
