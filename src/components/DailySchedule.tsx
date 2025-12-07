@@ -364,7 +364,9 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     setIsProcessing(true);
     try {
       const params = new URLSearchParams();
-      params.set('profile', '1');
+      // temp temp temp temp temp temp temp temp temp
+      //params.set('profile', '1');
+      params.set('profile', '555');
       params.set('animalType', treatment.animalType);
       params.set('animalName', treatment.animalName);
       const url = `/api/treatments?${params.toString()}`;

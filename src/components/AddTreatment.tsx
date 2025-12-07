@@ -212,16 +212,17 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
     e.preventDefault();
     
     // Validate required fields
-    if (!selectedAnimal || !treatmentType) {
+    if (!selectedAnimal) {
       toast.error("נא למלא את כל השדות הנדרשים");
       return;
     }
-    
+    /*
     // Validate manual case if "other" is selected
     if (treatmentType === 'other' && !manualCase.trim()) {
       toast.error("נא להזין את סוג הטיפול");
       return;
     }
+      */
 
     // Build rows from mappedTreatments: for each grid entry, expand into N rows
     // where N = days * (number of times per day checked)
@@ -238,7 +239,10 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
       const hasEvening = mt.evening ? 'FALSE' : '';
       const timesPerDay = (hasMorning ? 1 : 0) + (hasNoon ? 1 : 0) + (hasEvening ? 1 : 0);
       const frequency = Number(mt.frequency) || 1;
-      if (timesPerDay === 0) return; // nothing to schedule for this row
+      // Allow scheduling even if no time is selected (timesPerDay === 0)
+      
+      // If no time is selected, create a general treatment entry
+      const useGeneral = timesPerDay === 0;
 
       for (let d = 0, x = 1; d < daysNum; d+= frequency, x++) {
         const dateObj = new Date(baseDate);
@@ -250,15 +254,15 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
           rowsToSend.push({
             date: dateObj,
             day: weekday,
-            morning: hasMorning,
-            noon: hasNoon,
-            evening: hasEvening,
+            morning: useGeneral ? '' : hasMorning,
+            noon: useGeneral ? '' : hasNoon,
+            evening: useGeneral ? '' : hasEvening,
             treatment: mt.medication,
             dosage: mt.dosage || '',
             'body part': mt.bodyPart || '',
             duration,
             location: '',
-            case: treatmentType === 'other' ? manualCase : (mt.case || treatmentType),
+            case: treatmentType === 'other' ? manualCase : (treatmentType || mt.medication),
             notes: notes || ''
           });
 
@@ -283,7 +287,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
     console.log('Sorted rows to send:', rowsToSend);
 
     if (rowsToSend.length === 0) {
-      toast.error('אין שורות לשליחה - נא למלא לפחות זמן אחד בשורה');
+      toast.error('אין שורות לשליחה - נא להוסיף לפחות שורת טיפול אחת');
       return;
     }
 
@@ -414,13 +418,13 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 </div>
 
                 <div className={cn("space-y-2", !selectedAnimalType && "md:col-start-2")}>
-                  <Label htmlFor="treatment-type" className="text-right">סוג טיפול *</Label>
+                  <Label htmlFor="treatment-type" className="text-right">סיבת טיפול (אופציונלי)</Label>
                   <Select value={treatmentType} onValueChange={(val) => {
                     setTreatmentType(val);
                     if (val !== 'other') setManualCase('');
-                  }} required>
+                  }}>
                     <SelectTrigger id="treatment-type">
-                      <SelectValue placeholder="בחר סוג טיפול" />
+                      <SelectValue placeholder="בחר סיבת טיפול" />
                     </SelectTrigger>
                     <SelectContent>
                       {treatmentTypes.map((t) => (
@@ -436,15 +440,14 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 {/* Manual case input when "other" is selected */}
                 {treatmentType === 'other' && (
                   <div className="space-y-2">
-                    <Label htmlFor="manual-case" className="text-right">הזן סוג טיפול *</Label>
+                    <Label htmlFor="manual-case" className="text-right">הזן סיבת טיפול (אופציונלי)</Label>
                     <Input
                       id="manual-case"
                       type="text"
                       value={manualCase}
                       onChange={(e) => setManualCase(e.target.value)}
-                      placeholder="הזן את סוג הטיפול"
+                      placeholder="הזן את סיבת הטיפול"
                       className="text-right"
-                      required
                     />
                   </div>
                 )}
@@ -470,9 +473,8 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                   </Select>
                 </div>
 
-                {/* Editable grid: show only after a treatment type is selected */}
-                {treatmentType && (
-                  <div className="md:col-span-2 space-y-2">
+                {/* Editable grid: always show */}
+                <div className="md:col-span-2 space-y-2">
                     <div className="flex justify-end mb-2">
                       <Button
                         type="button"
@@ -497,11 +499,11 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                       </Button>
                     </div>
 
-                    <div className="w-full overflow-x-scroll border rounded bg-white" style={{ maxHeight: 'none' }}>
+                  <div className="w-full overflow-x-scroll border rounded bg-white" style={{ maxHeight: 'none' }}>
                       <table className="w-max text-sm border-collapse" dir="rtl" style={{ tableLayout: 'auto' }}>
                         <thead className="sticky top-0 bg-gray-50">
                           <tr className="text-right">
-                            <th className="px-3 py-2 border-b font-semibold w-40">תרופה</th>
+                            <th className="px-3 py-2 border-b font-semibold w-40">טיפול</th>
                             <th className="px-3 py-2 border-b font-semibold w-24">ימים</th>
                             <th className="px-3 py-2 border-b font-semibold w-24">תדירות</th>
                             <th className="px-3 py-2 border-b font-semibold w-32">מינון</th>
@@ -600,7 +602,6 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                       </table>
                     </div>
                   </div>
-                )}
 
                 <div className="md:col-span-2 space-y-2">
                   <Label htmlFor="notes" className="text-right">הערות</Label>

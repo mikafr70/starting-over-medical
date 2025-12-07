@@ -83,7 +83,12 @@ export async function POST(request) {
       if (treatments.length === 0) { 
         return new Response(JSON.stringify({ message: 'No treatments to add' }), { status: 200, headers: CORS_HEADERS });
       }
-      const result = await addTreatmentAtTop(animalSheetId, treatments);
+      
+      // Check if general caregiver is selected
+      const isGeneralCaregiver = caregiverName && caregiverName.trim() === 'כללי';
+      console.log(`Is general caregiver selected: ${isGeneralCaregiver}`);
+      
+      const result = await addTreatmentAtTop(animalSheetId, treatments, isGeneralCaregiver);
       await sortAnimalTreatmentsByDateDescending(animalSheetId, animalName);
       
       // Update caregiver if provided

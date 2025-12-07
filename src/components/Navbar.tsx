@@ -1,5 +1,6 @@
 import { Home, Calendar, BookOpen, Heart, LogOut } from "lucide-react";
 import { Button } from "./ui/button";
+import react from "react";
 
 interface NavbarProps {
   currentScreen: string;

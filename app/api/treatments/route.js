@@ -1,7 +1,8 @@
-import { updateAnimalInList } from '@/src/lib/sheets'; // ...existing code...
+import { updateAnimalInList,addGeneralTreatmentColumnWithValidations } from '@/src/lib/sheets'; // ...existing code...
 
 export async function PUT(request) {
   try {
+
     const { searchParams } = new URL(request.url);
     const animalName = searchParams.get('animalName');
     if (!animalName) {
@@ -68,7 +69,12 @@ export async function GET(request) {
   try {
     // Ensure configuration is loaded before accessing sheets
     await ensureConfigLoaded();
-    
+
+
+
+
+
+
     const { searchParams } = new URL(request.url);
     const animalType = searchParams.get('animalType');
     const profile = searchParams.get('profile');

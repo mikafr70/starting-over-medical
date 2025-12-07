@@ -1,4 +1,4 @@
-import { getAnimals, getAnimalsForCaregiverWithTreatementsToday, ensureConfigLoaded, addAnimalToList, createAnimalTreatmentSheet } from '@/src/lib/sheets';
+import { getAnimals, getAnimalsForCaregiverWithTreatementsToday, getGeneralTreatmentsForCaregiver, ensureConfigLoaded, addAnimalToList, createAnimalTreatmentSheet } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -20,6 +20,16 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const caregiver = searchParams.get('caregiver');
+    const generalTreatments = searchParams.get('generalTreatments');
+
+    if(caregiver && generalTreatments === 'true'){
+      console.log('Fetching general treatments for caregiver:', caregiver);
+      const treatments = await getGeneralTreatmentsForCaregiver(caregiver);
+      return new Response(JSON.stringify(treatments), { 
+        status: 200, 
+        headers: CORS_HEADERS 
+      });
+    }
 
     if(caregiver ){
       console.log('Filtering animals for caregiver:', caregiver);

@@ -75,12 +75,12 @@ export const ANIMAL_TREATMENT_SHEETS = () => ({
     sheetId: process.env.GOATS_SHEET_ID,
     folderId: process.env.GOATS_DRIVE_FOLDER_ID,
   },
-  //sheep: {
-  //  displayName: "כבשה",
-  //  emoji: "🐑",
-  //  sheetId: process.env.SHEEPS_SHEET_ID,
-  //  folderId: process.env.SHEEPS_DRIVE_FOLDER_ID,
-  //},
+  sheep: {
+    displayName: "כבשה",
+    emoji: "🐑",
+    sheetId: process.env.SHEEPS_SHEET_ID,
+    folderId: process.env.SHEEPS_DRIVE_FOLDER_ID,
+  },
   rabbit: {
     displayName: "ארנב",
     emoji: "🐰",
@@ -99,6 +99,7 @@ export const ANIMAL_TREATMENT_SHEETS = () => ({
     sheetId: process.env.PIGS_SHEET_ID,
     folderId: process.env.PIGS_DRIVE_FOLDER_ID,
   },
+  
 });
 
 /*--------------------------------------------------
@@ -294,7 +295,9 @@ export async function getDoc(spreadsheetId) {
     const auth = getSheetsAuth();
     const doc = new GoogleSpreadsheet(spreadsheetId, auth);
     //await doc.useServiceAccountAuth(CREDENTIALS);    
-    await doc.loadInfo();
+    // temp temp temp temp temp temp temp temp temp
+    await withSheetsRetry(() =>  doc.loadInfo());
+    // temp temp temp temp temp temp temp temp temp
     console.log('<<< Document loaded:', doc.title);
 
     return doc;
@@ -594,9 +597,9 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
 /*--------------------------------------------------
   Add treatments at the top of sheet
 ---------------------------------------------------*/
-export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
+export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCaregiver = false) {
   await ensureConfigLoaded();
-  console.log(`>>> addTreatmentAtTop for spreadsheetId: ${spreadsheetId}`);
+  console.log(`>>> addTreatmentAtTop for spreadsheetId: ${spreadsheetId}, isGeneralCaregiver: ${isGeneralCaregiver}`);
   const rowsToAdd = Array.isArray(rowData) ? rowData : [rowData];
   try {
     if (!spreadsheetId) throw new Error('spreadsheetId is required');
@@ -607,6 +610,7 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
 
     console.log(`rowData - ${JSON.stringify(rowData[0])}`);
     console.log(`checkboxes values: morning - ${rowData[0].morning} , noon - ${rowData[0].noon} , evening - ${rowData[0].evening}`);
+    console.log(`isGeneralCaregiver flag: ${isGeneralCaregiver}`);
 
     const auth = getSheetsAuth();
     const sheetsApi = google.sheets({ version: 'v4', auth });
@@ -636,6 +640,7 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
       const morning = rowData.morning;
       const noon = rowData.noon;
       const evening = rowData.evening;
+      const generalTreatment = isGeneralCaregiver ? 'TRUE' : ''; // Set to TRUE if general caregiver selected
       const treatment = rowData.treatment || '';
       const dosage = rowData.dosage || '';
       const bodyPart = rowData.bodyPart || rowData['body part'] || '';
@@ -644,19 +649,19 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
       const caseField = rowData.case || '';
       const notes = rowData.notes || '';
 
-      return [date, day, morning, noon, evening, treatment, dosage, bodyPart, duration, location, caseField, notes];
+      return [date, day, morning, noon, evening, generalTreatment, treatment, dosage, bodyPart, duration, location, caseField, notes];
     });
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheet.title}!A2:L${1 + rowsToAdd.length}`,
+      range: `${sheet.title}!A2:M${1 + rowsToAdd.length}`,
       valueInputOption: 'RAW',
       resource: { values }
     });
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheet.title}!A2:L${1 + rowsToAdd.length}`,
+      range: `${sheet.title}!A2:M${1 + rowsToAdd.length}`,
       valueInputOption: 'USER_ENTERED',
       resource: { values },
     });
@@ -764,6 +769,26 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}) {
               endColumnIndex: 5
             },
             rule: null
+          }
+        });
+      }
+
+      // Add checkbox validation for general treatment column (column F, index 5) if general caregiver selected
+      if (isGeneralCaregiver) {
+        console.log('Adding general treatment checkbox validation at row:', startRow);
+        validationRequests.push({
+          setDataValidation: {
+            range: {
+              sheetId,
+              startRowIndex: startRow,
+              endRowIndex: startRow + 1,
+              startColumnIndex: 5,
+              endColumnIndex: 6
+            },
+            rule: {
+              condition: { type: 'BOOLEAN' },
+              showCustomUi: true // Start as checked
+            }
           }
         });
       }
@@ -967,7 +992,7 @@ export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) 
     console.log(`>>> getAnimalsForCaregiverWithTreatementsToday for caregiver: ${caregiverName}`);
     const todayDate = new Date(); 
     const todayStr = `${todayDate.getDate()}/${todayDate.getMonth() + 1}/${todayDate.getFullYear()}`;
-    const animalsWithTodayTreatments = [];
+    const allAssignedAnimals = [];
     // loop through all animal types
     const sheets = ANIMAL_TREATMENT_SHEETS();
 
@@ -981,29 +1006,115 @@ export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) 
         const caregivers = inTreatementsField.split(',').map(name => name.trim());
         return caregivers.includes(caregiverName);
       });
+      
       for (const animal of assignedAnimals) {
+        // Set basic animal info
+        animal.animalType = animalType;
+        animal.animalTypeHebrew = sheets[animalType].displayName;
+        animal.hasTreatmentToday = false;
+        animal.medicalCases = '';
+        
         const spreadsheetId = await findSpreadsheetInFolder(animalType, animal.id);
         console.log(`Animal ID: ${animal.id}, Spreadsheet ID: ${spreadsheetId}`);
-        if(!spreadsheetId) {
+        
+        if(spreadsheetId) {
+          const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr);
+          if(hasTreatment) {
+            // For caregiver screen: only count general treatments (empty time slots) as "treatment for today"
+            // Scheduled treatments (with morning/noon/evening checkboxes) should NOT show as greyed
+            const generalTreatments = treatmentTimes.filter(t => t.isGeneral === true);
+            
+            if(generalTreatments.length > 0) {
+              animal.hasTreatmentToday = true;
+              // Collect all unique medical cases for general treatments only
+              animal.medicalCases = [...new Set(generalTreatments.map(t => t.medicalCase))].join(', ');
+              console.log(`Animal : ${animal.name} has general treatment today. Cases: ${animal.medicalCases}`);
+            }
+          }
+        } else {
           console.log(`No treatment sheet found for animal ID: ${animal.id}`);
-          continue;
         }
-        const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr);
-        if(hasTreatment) {
-          animal.animalType = animalType;
-          // Get Hebrew display name for the animal type
-          animal.animalTypeHebrew = sheets[animalType].displayName;
-          // Collect all unique medical cases for this animal today
-          animal.medicalCases = [...new Set(treatmentTimes.map(t => t.medicalCase))].join(', ');
-          animalsWithTodayTreatments.push(animal);
-          console.log(`Animal : ${animal.name} has treatment today. Cases: ${animal.medicalCases}`);
-        }
+        
+        // Add all assigned animals, regardless of whether they have treatments today
+        allAssignedAnimals.push(animal);
       }
-      console.log(`Found Treatments today for ${animalsWithTodayTreatments.length} assigned animals for caregiver ${caregiverName} in type ${animalType}`);
+      console.log(`Found ${assignedAnimals.length} assigned animals for caregiver ${caregiverName} in type ${animalType}, ${assignedAnimals.filter(a => a.hasTreatmentToday).length} with treatments today`);
     }
-    return animalsWithTodayTreatments;  
+    return allAssignedAnimals;  
   } catch (error) {
     console.error('Error in getAnimalsForCaregiverWithTreatementsToday:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Get all general treatments (checkbox = TRUE) for caregiver's animals
+---------------------------------------------------*/
+export async function getGeneralTreatmentsForCaregiver(caregiverName) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>>> getGeneralTreatmentsForCaregiver for caregiver: ${caregiverName}`);
+    const allGeneralTreatments = [];
+    const sheets = ANIMAL_TREATMENT_SHEETS();
+
+    for (const animalType of Object.keys(sheets)) {
+      const animals = await getAnimals(animalType);
+      
+      const assignedAnimals = animals.filter(animal => {
+        const inTreatementsField = (animal.in_treatment || '').toString();  
+        const caregivers = inTreatementsField.split(',').map(name => name.trim());
+        return caregivers.includes(caregiverName);
+      });
+      
+      for (const animal of assignedAnimals) {
+        const spreadsheetId = await findSpreadsheetInFolder(animalType, animal.id);
+        
+        if(spreadsheetId) {
+          const doc = await getDoc(spreadsheetId);
+          const sheet = doc.sheetsByIndex[0];
+          const rows = await sheet.getRows();
+          
+          // Build header map
+          const headerMap = {};
+          if (sheet.headerValues) {
+            sheet.headerValues.forEach((header, index) => {
+              if (header) headerMap[header.trim()] = index;
+            });
+          }
+          
+          const generalTreatmentCol = headerMap['טיפול כללי'] !== undefined ? headerMap['טיפול כללי'] : 5;
+          const treatmentCol = headerMap['טיפול'] !== undefined ? headerMap['טיפול'] : 6;
+          const caseCol = headerMap['סיבת טיפול'] !== undefined ? headerMap['סיבת טיפול'] : 11;
+          const dosageCol = headerMap['מינון'] !== undefined ? headerMap['מינון'] : 7;
+          const dateCol = 0;
+          
+          for(const row of rows) {
+            const generalTreatmentValue = row._rawData?.[generalTreatmentCol];
+            
+            // Check if general treatment checkbox is TRUE
+            if(generalTreatmentValue === true || generalTreatmentValue === 'TRUE') {
+              const treatment = row._rawData?.[treatmentCol] || '';
+              const medicalCase = row._rawData?.[caseCol] || '';
+              const dosage = row._rawData?.[dosageCol] || '';
+              const date = row._rawData?.[dateCol] || '';
+              
+              allGeneralTreatments.push({
+                animalName: animal.name,
+                animalType: sheets[animalType].displayName,
+                treatment,
+                medicalCase,
+                dosage,
+                date
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    return allGeneralTreatments;
+  } catch (error) {
+    console.error('Error in getGeneralTreatmentsForCaregiver:', error);
     throw error;
   }
 }
@@ -1064,28 +1175,37 @@ export async function hasTreatmentToday(sheetId, todayStr) {
         const eveningValue = row._rawData?.[eveningCol];
         const medicalCase = row._rawData?.[caseCol] || 'ללא תיאור';
         
+        // Track if any time slots are scheduled (not blank)
+        let hasScheduledTimes = false;
+        
         // Check morning: false/FALSE = needs treatment (not completed), true/TRUE = completed
         if(morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') {
+          hasScheduledTimes = true;
           treatmentTimes.push({ 
             timeSlot: 'morning', 
             medicalCase,
-            isCompleted: morningValue === true || morningValue === 'TRUE'
+            isCompleted: morningValue === true || morningValue === 'TRUE',
+            isGeneral: false
           });
         }
         // Check noon
         if(noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') {
+          hasScheduledTimes = true;
           treatmentTimes.push({ 
             timeSlot: 'noon', 
             medicalCase,
-            isCompleted: noonValue === true || noonValue === 'TRUE'
+            isCompleted: noonValue === true || noonValue === 'TRUE',
+            isGeneral: false
           });
         }
         // Check evening
         if(eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE') {
+          hasScheduledTimes = true;
           treatmentTimes.push({ 
             timeSlot: 'evening', 
             medicalCase,
-            isCompleted: eveningValue === true || eveningValue === 'TRUE'
+            isCompleted: eveningValue === true || eveningValue === 'TRUE',
+            isGeneral: false
           });
         }
         
@@ -1095,12 +1215,12 @@ export async function hasTreatmentToday(sheetId, todayStr) {
         const isEveningBlank = eveningValue === '';
         
         if(isMorningBlank && isNoonBlank && isEveningBlank) {
-          treatmentTimes.push({ timeSlot: 'general', medicalCase });
+          treatmentTimes.push({ timeSlot: 'general', medicalCase, isGeneral: true });
         }
         
         // If no time slots are specified but there's a treatment row, it's general
         if(treatmentTimes.length === 0) {
-          treatmentTimes.push({ timeSlot: 'general', medicalCase });
+          treatmentTimes.push({ timeSlot: 'general', medicalCase, isGeneral: true });
         }
       }
     }
@@ -1514,4 +1634,223 @@ export async function setCaregiverForAnimal(animalType, animalName, caregiverNam
     console.error('Error in setCaregiverForAnimal:', error);
     throw error;
   } 
+}
+
+//--------------------------------------------------
+//  Add general treatment coulmn after evening coulmn with validations
+//---------------------------------------------------
+export async function addGeneralTreatmentColumnWithValidations() {
+  try {
+    await ensureConfigLoaded();
+
+    for (const animalType of Object.keys(ANIMAL_TREATMENT_SHEETS())) {
+      const folderId = ANIMAL_TREATMENT_SHEETS()[animalType].folderId;
+      console.log(`Processing folder for animal type: ${animalType}, folderId: ${folderId}`);
+
+      const drive = getDriveClient();
+      let pageToken = undefined;
+
+      do {
+        const response = await drive.files.list({
+          q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+          fields: 'nextPageToken, files(id, name)',
+          spaces: 'drive',
+          pageSize: 100,          // max per page
+          pageToken,              // continue from previous page
+        });
+
+        const files = response.data.files || [];
+        console.log(`Found ${files.length} files in this page for ${animalType}`);
+
+        for (const file of files) {
+          console.log(`Processing file: ${file.name} (${file.id})`);
+          await addGeneralTreatmentColumnToSheet(file.id);
+          // your existing pause (you can tune this later)
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+
+        pageToken = response.data.nextPageToken ?? undefined;
+      } while (pageToken);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error in addGeneralTreatmentColumnWithValidations:', error);
+    throw error;
+  }
+}
+/*-------------------------------------------------- 
+  Add general treatment coulmn after evening coulmn with validations to specific sheet
+---------------------------------------------------*/
+export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
+  try {
+    await ensureConfigLoaded();
+    console.log(`>>> addGeneralTreatmentColumnWithValidations for sheetID: ${spreadsheetId}`);
+    if (!spreadsheetId) throw new Error('Could not find treatment sheet for animal: ' );  
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0]; 
+    const sheetId = sheet.sheetId;
+    const auth = getSheetsAuth();
+    const sheetsApi = google.sheets({ version: 'v4', auth });
+    
+    // Read headers directly using Sheets API to avoid duplicate header error
+    const headerResponse = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheet.title}!1:1`
+    });
+    
+    const headers = headerResponse.data.values?.[0] || [];
+    const generalTreatmentIndices = [];
+    
+    headers.forEach((header, index) => {
+      if (header && header.trim() === 'טיפול כללי') {
+        generalTreatmentIndices.push(index);
+      }
+    });
+    
+    console.log(`Found ${generalTreatmentIndices.length} "טיפול כללי" columns at indices:`, generalTreatmentIndices);
+    
+    // If multiple columns exist, delete all except the first one
+    if (generalTreatmentIndices.length > 1) {
+      console.log(`Deleting ${generalTreatmentIndices.length - 1} duplicate "טיפול כללי" columns`);
+      
+      // Delete columns in reverse order to maintain correct indices
+      const deleteRequests = [];
+      for (let i = generalTreatmentIndices.length - 1; i >= 1; i--) {
+        const colIndex = generalTreatmentIndices[i];
+        deleteRequests.push({
+          deleteDimension: {
+            range: {
+              sheetId: sheetId,
+              dimension: 'COLUMNS',
+              startIndex: colIndex,
+              endIndex: colIndex + 1
+            }
+          }
+        });
+      }
+      
+      if (deleteRequests.length > 0) {
+        await sheetsApi.spreadsheets.batchUpdate({
+          spreadsheetId,
+          resource: { requests: deleteRequests }
+        });
+        console.log(`Deleted ${deleteRequests.length} duplicate columns`);
+      }
+      
+      // Column already exists, no need to add it
+      return { success: true, message: 'Removed duplicates, kept first column' };
+    }
+    
+    // If exactly one column exists, we're done
+    if (generalTreatmentIndices.length === 1) {
+      console.log('General treatment column already exists at index:', generalTreatmentIndices[0]);
+      return { success: true, message: 'Column already exists' };
+    }
+    
+    // No column exists, add it
+    // 1) Insert new column after evening (column index 4)
+    await withSheetsRetry(() => sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,  
+      resource: {
+        requests: [
+          {
+            insertDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'COLUMNS',
+                startIndex: 5,
+                endIndex: 6 
+              },
+              inheritFromBefore: true
+            } 
+          }
+        ]
+      }
+    }));
+    console.log('Inserted new column after evening column');  
+    
+    // 2) Set header for new column
+    await withSheetsRetry(() => sheetsApi.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheet.title}!F1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['טיפול כללי']] 
+      }
+    }));
+    console.log('Set header for new general treatment column'); 
+    
+    // 3) Add data validation to new column (checkboxes)
+    await withSheetsRetry(() => sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId,
+      resource: {
+        requests: [
+          {
+            setDataValidation: {
+              range: {
+                sheetId: sheetId,
+                startRowIndex: 1,
+                endRowIndex: sheet.rowCount,
+                startColumnIndex: 5,
+                endColumnIndex: 6
+              },
+              rule: {
+                condition: {
+                  type: 'BOOLEAN'
+                },
+                inputMessage: 'סמן אם הטיפול הכללי בוצע',
+                strict: true,
+                showCustomUi: true  
+              }
+            }
+          }
+        ]
+      }
+    }));
+    console.log('Added data validation (checkboxes) to general treatment column'); 
+    return { success: true, message: 'Column created' };
+  } catch (error) {
+    console.error('Error in addGeneralTreatmentColumnWithValidations:', error);
+    throw error;
+  } 
+}
+  
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function withSheetsRetry(fn, maxAttempts = 5) {
+  let delay = 2000; // start with 2 seconds
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err?.status || err?.code;
+      const reason = err?.errors?.[0]?.reason;
+
+      const isRetryableStatus =
+        status === 429 ||                // rate limit
+        status === 500 ||                // internal error
+        status === 502 ||                // bad gateway
+        status === 503 ||                // service unavailable
+        status === 504;                  // timeout
+
+      if (!isRetryableStatus) {
+        throw err; // real error, don't hide it
+      }
+
+      if (attempt === maxAttempts) {
+        console.error(`Sheets retry failed after ${maxAttempts} attempts`, err);
+        throw err;
+      }
+
+      console.warn(
+        `Sheets ${status} (${reason || 'retryable error'}), attempt ${attempt}/${maxAttempts}, waiting ${delay}ms`
+      );
+      await sleep(delay);
+      delay *= 2; // exponential backoff
+    }
+  }
 }

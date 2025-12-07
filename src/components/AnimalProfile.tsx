@@ -6,7 +6,9 @@ import { ArrowRight, Calendar, Pill, Loader2 } from "lucide-react";
 import { API_ENDPOINTS } from "../config/api";
 import React from "react";
 
-
+// Global cache to prevent duplicate fetches across all component instances
+const profileCache = new Map<string, any>();
+const fetchingProfiles = new Map<string, Promise<any>>();
 
 export function TreatmentCheckboxes({
   treatments,
@@ -90,21 +92,60 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
   const [animal, setAnimal] = useState<any | null>(null);
   const [treatments, setTreatments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
   console.log('$$$$$$$$$AnimalProfile Render:', { animalType, animalName });
   
   useEffect(() => {
     const fetchProfile = async () => {
+      const fetchKey = `${animalType}||${animalName}`;
+      
+      // Check if we have cached data
+      if (profileCache.has(fetchKey)) {
+        console.log('Using cached profile data for:', fetchKey);
+        const cachedData = profileCache.get(fetchKey);
+        setAnimal(cachedData.animal);
+        setEditAnimal(cachedData.animal);
+        setTreatments(cachedData.treatments || []);
+        setEditTreatments((cachedData.treatments || []).map((t: any) => ({ ...t })));
+        setLoading(false);
+        return;
+      }
+      
+      // Check if fetch is already in progress
+      if (fetchingProfiles.has(fetchKey)) {
+        console.log('Waiting for in-progress fetch for:', fetchKey);
+        const data = await fetchingProfiles.get(fetchKey);
+        setAnimal(data.animal);
+        setEditAnimal(data.animal);
+        setTreatments(data.treatments || []);
+        setEditTreatments((data.treatments || []).map((t: any) => ({ ...t })));
+        setLoading(false);
+        return;
+      }
+      
       setLoading(true);
       try {
-        let res;
-
         console.log(`Fetching animal by Name: ${animalName} of type: ${animalType}`);
-        // Standard fetch by Name
-        res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName));
         
-        if (!res.ok) throw new Error('Failed to fetch animal profile');
-
-        const data = await res.json();
+        // Create and store the fetch promise
+        const fetchPromise = fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName))
+          .then(res => {
+            if (!res.ok) throw new Error('Failed to fetch animal profile');
+            return res.json();
+          })
+          .then(data => {
+            profileCache.set(fetchKey, data);
+            fetchingProfiles.delete(fetchKey);
+            return data;
+          })
+          .catch(err => {
+            fetchingProfiles.delete(fetchKey);
+            throw err;
+          });
+        
+        fetchingProfiles.set(fetchKey, fetchPromise);
+        const data = await fetchPromise;
+        
         console.log('Fetched animal profile data:', data.treatments);
         setAnimal(data.animal);
         setEditAnimal(data.animal);
