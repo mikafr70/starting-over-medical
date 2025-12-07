@@ -165,7 +165,7 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
   }, [animalName, animalType]);
 
   if (loading) {
-    return <div className="p-8 text-center">טוען נתוני חיה...</div>;
+    return <Loader2 className="w-12 h-12 animate-spin text-primary" />;
   }
   if (!animal) {
     return <div className="p-8 text-center text-red-600">לא נמצאה חיה</div>;
@@ -317,17 +317,50 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                   {editTreatments.length === 0 ? (
                     <div className="text-center text-gray-500">לא נמצאו טיפולים בשבוע האחרון</div>
                   ) : (
-                    editTreatments.map((treatment, idx) => (
-                      <div
-                        key={treatment.id || idx}
-                        className="p-4 rounded-lg border"
-                        style={{ backgroundColor: '#FFFFFF' }}
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <Calendar className="w-4 h-4" />
-                          <span>{treatment.date} - {treatment.day} </span>
-                          <span className="ml-2 text-gray-500 text-sm"></span>
-                        </div>
+                    editTreatments.map((treatment, idx) => {
+                      // Check if this treatment is for today
+                      const today = new Date();
+                      const todayStr = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
+                      
+                      // Also check with padded zeros format (DD/MM/YYYY)
+                      const todayPadded = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+                      
+                      const isToday = treatment.date === todayStr || treatment.date === todayPadded;
+                      
+                      console.log('Treatment date check:', { 
+                        treatmentDate: treatment.date, 
+                        todayStr, 
+                        todayPadded, 
+                        isToday 
+                      });
+                      
+                      return (
+                        <div
+                          key={treatment.id || idx}
+                          className="p-4 rounded-lg border"
+                          style={{ 
+                            backgroundColor: isToday ? '#e3f7eeff' : '#FFFFFF',
+                            borderColor: isToday ? '#6B9080' : '#E5E7EB',
+                            borderWidth: isToday ? '2px' : '1px',
+                            boxShadow: isToday ? '0 4px 6px -1px rgba(107, 144, 128, 0.2)' : 'none'
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <Calendar className="w-4 h-4" style={{ color: isToday ? '#6B9080' : 'currentColor' }} />
+                            <span style={{ fontWeight: isToday ? 'bold' : 'normal', color: isToday ? '#6B9080' : 'currentColor' }}>
+                              {treatment.date} - {treatment.day}
+                            </span>
+                            {isToday && (
+                              <Badge 
+                                variant="default" 
+                                className="mr-2"
+                                style={{ backgroundColor: '#6B9080', color: '#FFFFFF' }}
+                              >
+                                להיום
+                              </Badge>
+                            )}
+                            <span className="ml-2 text-gray-500 text-sm"></span>
+                          </div>
                         <div className="flex gap-2 mb-2">
                           <div className="font-bold text-lg flex-1">{treatment.case} - {treatment.treatment} </div>
                         </div>
@@ -382,7 +415,8 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                           </Button>
                         </div>
                       </div>
-                    ))
+                    );
+                    })
                   )}
                 </div>
               </CardContent>

@@ -1018,7 +1018,8 @@ export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) 
         console.log(`Animal ID: ${animal.id}, Spreadsheet ID: ${spreadsheetId}`);
         
         if(spreadsheetId) {
-          const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr);
+          // Pass true to exclude treatments with general checkbox checked from being counted
+          const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr, true);
           if(hasTreatment) {
             // For caregiver screen: only count general treatments (empty time slots) as "treatment for today"
             // Scheduled treatments (with morning/noon/evening checkboxes) should NOT show as greyed
@@ -1054,6 +1055,10 @@ export async function getGeneralTreatmentsForCaregiver(caregiverName) {
   try {
     await ensureConfigLoaded();
     console.log(`>>> getGeneralTreatmentsForCaregiver for caregiver: ${caregiverName}`);
+    const todayDate = new Date();
+    const todayStr = `${todayDate.getDate()}/${todayDate.getMonth() + 1}/${todayDate.getFullYear()}`;
+    console.log(`Filtering general treatments for today: ${todayStr}`);
+    
     const allGeneralTreatments = [];
     const sheets = ANIMAL_TREATMENT_SHEETS();
 
@@ -1090,13 +1095,20 @@ export async function getGeneralTreatmentsForCaregiver(caregiverName) {
           
           for(const row of rows) {
             const generalTreatmentValue = row._rawData?.[generalTreatmentCol];
+            const dateValue = row._rawData?.[dateCol] || '';
             
-            // Check if general treatment checkbox is TRUE
-            if(generalTreatmentValue === true || generalTreatmentValue === 'TRUE') {
+            // Parse the row date and compare with today
+            const rowDate = parseDMY(dateValue);
+            const todayParsed = parseDMY(todayStr);
+            
+            // Check if general treatment checkbox is TRUE and if date matches today
+            if((generalTreatmentValue === true || generalTreatmentValue === 'TRUE') && rowDate === todayParsed) {
               const treatment = row._rawData?.[treatmentCol] || '';
               const medicalCase = row._rawData?.[caseCol] || '';
               const dosage = row._rawData?.[dosageCol] || '';
-              const date = row._rawData?.[dateCol] || '';
+              const date = dateValue;
+              
+              console.log(`Found general treatment for today: ${animal.name} - ${treatment}`);
               
               allGeneralTreatments.push({
                 animalName: animal.name,
@@ -1112,6 +1124,7 @@ export async function getGeneralTreatmentsForCaregiver(caregiverName) {
       }
     }
     
+    console.log(`Total general treatments for today: ${allGeneralTreatments.length}`);
     return allGeneralTreatments;
   } catch (error) {
     console.error('Error in getGeneralTreatmentsForCaregiver:', error);
@@ -1125,8 +1138,8 @@ const treatmentCheckCache = new Map();
 /*-------------------------------------------------- 
   Check if sheet has treatment today
 ---------------------------------------------------*/
-export async function hasTreatmentToday(sheetId, todayStr) {
-  console.log(`>>> hasTreatmentToday for sheetID: ${sheetId} and date: ${todayStr}`);  
+export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneralTreatments = false) {
+  console.log(`>>> hasTreatmentToday for sheetID: ${sheetId} and date: ${todayStr}, excludeCheckedGeneralTreatments: ${excludeCheckedGeneralTreatments}`);  
   await ensureConfigLoaded(); 
   let hasTreatment = false;
   let treatmentTimes = [];
@@ -1155,6 +1168,7 @@ export async function hasTreatmentToday(sheetId, todayStr) {
   const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
   const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
   const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
+  const generalTreatmentCol = headerMap['טיפול כללי'] !== undefined ? headerMap['טיפול כללי'] : 5;
   const caseCol = headerMap['סיבת טיפול'] !== undefined ? headerMap['סיבת טיפול'] : 10;
   
   try {  
@@ -1173,7 +1187,16 @@ export async function hasTreatmentToday(sheetId, todayStr) {
         const morningValue = row._rawData?.[morningCol];
         const noonValue = row._rawData?.[noonCol];
         const eveningValue = row._rawData?.[eveningCol];
+        const generalTreatmentValue = row._rawData?.[generalTreatmentCol];
         const medicalCase = row._rawData?.[caseCol] || 'ללא תיאור';
+        
+        // If general treatment checkbox is checked (TRUE), skip this entire row
+        const isGeneralTreatmentChecked = generalTreatmentValue === true || generalTreatmentValue === 'TRUE';
+        
+        if (isGeneralTreatmentChecked && excludeCheckedGeneralTreatments) {
+          // Skip this row entirely if general treatment is checked and we're excluding them
+          continue;
+        }
         
         // Track if any time slots are scheduled (not blank)
         let hasScheduledTimes = false;
@@ -1214,12 +1237,13 @@ export async function hasTreatmentToday(sheetId, todayStr) {
         const isNoonBlank = noonValue === '' ;
         const isEveningBlank = eveningValue === '';
         
-        if(isMorningBlank && isNoonBlank && isEveningBlank) {
+        // Only include general treatments (empty time slots) if the general treatment checkbox is NOT checked
+        if(isMorningBlank && isNoonBlank && isEveningBlank && !isGeneralTreatmentChecked) {
           treatmentTimes.push({ timeSlot: 'general', medicalCase, isGeneral: true });
         }
         
-        // If no time slots are specified but there's a treatment row, it's general
-        if(treatmentTimes.length === 0) {
+        // If no time slots are specified but there's a treatment row, it's general (only if checkbox not checked)
+        if(treatmentTimes.length === 0 && !isGeneralTreatmentChecked) {
           treatmentTimes.push({ timeSlot: 'general', medicalCase, isGeneral: true });
         }
       }
@@ -1320,21 +1344,39 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     const filesWithTreatmentsToday = [];
     if (!folderId) throw new Error('folderId is required'); 
     const drive = getDriveClient();
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);// - 14); !!!!!!!!!!!!!!!!!!!!
-    //twoWeeksAgo.setDate(twoWeeksAgo.getDate());
-    const twoWeeksAgoISO = twoWeeksAgo.toISOString();
+    
+    // TEMPORARY: Set to true to only get files edited today
+    const ONLY_TODAY_EDITS = true;
+    
+    let startDate;
+    if (ONLY_TODAY_EDITS) {
+      // Get files edited starting from today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      startDate = today;
+      console.log('TEMPORARY MODE: Fetching only files edited today:', today.toISOString());
+    } else {
+      // Original behavior: two weeks ago
+      const twoWeeksAgo = new Date();
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);// - 14); !!!!!!!!!!!!!!!!!!!!!!!!!!
+      startDate = twoWeeksAgo;
+    }
+    
+    const startDateISO = startDate.toISOString();
     
     // Use provided date or default to today
     const dateToCheck = targetDate ? new Date(targetDate) : new Date();
     const dateStr = `${dateToCheck.getDate()}/${dateToCheck.getMonth() + 1}/${dateToCheck.getFullYear()}`;
     
-    // list file names in folder modified in last two weeks 
+    // list file names in folder modified since startDate
     const tempResponse = await drive.files.list({
-      q: `'${folderId}' in parents and modifiedTime >= '${twoWeeksAgoISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
+      q: `'${folderId}' in parents and modifiedTime >= '${startDateISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
       fields: 'files(id, name, modifiedTime)',
       spaces: 'drive'
     });
+    
+    console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
+    
     for (const file of tempResponse.data.files) {
       const { hasTreatment,treatmentTimes} = await hasTreatmentToday(file.id, dateStr);
       await new Promise(resolve => setTimeout(resolve, 1000));

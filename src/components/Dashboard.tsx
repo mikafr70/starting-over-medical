@@ -223,9 +223,8 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Pill className="w-5 h-5" />
-                טיפולים כלליים
+                טיפולים כלליים להיום
               </CardTitle>
-              <CardDescription>טיפולים שסומנו כטיפולים כלליים עבור החיות שלך</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -250,6 +249,11 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
                       <div className="text-xs text-muted-foreground mt-1">
                         תאריך: {treatment.date}
                       </div>
+                    </div>
+                    <div>
+                      <Button size="sm" onClick={() => onSelectAnimal(treatment.animalType, treatment.animalName)}>
+                        פרטים
+                      </Button>
                     </div>
                   </div>
                 ))}
