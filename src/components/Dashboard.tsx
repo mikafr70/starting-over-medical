@@ -69,21 +69,19 @@ interface DashboardProps {
 export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardProps) {
   const [caregiverName, setCaregiverName] = useState<string>("");
   const [uncheckedTreatments] = useState<Animal[]>([]);
-  const [animalsForTodayList, setAnimalsForTodayList] = useState<Animal[]>([]);
-  const [generalTreatments, setGeneralTreatments] = useState<GeneralTreatment[]>([]);
   const [addAnimalOpen, setAddAnimalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const isFetchingRef = useRef(false);
   const lastEmailRef = useRef<string>("");
 
   useEffect(() => {
-    async function fetchCaregiverAndAnimals() {
+    async function fetchCaregiver() {
       if (!email) {
         setIsLoading(false);
         return;
       }
 
-      // Prevent duplicate fetches - but don't change loading state if already fetched
+      // Prevent duplicate fetches
       if (isFetchingRef.current) {
         return;
       }
@@ -99,44 +97,21 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
       setIsLoading(true);
 
       try {
-        // 1. Get caregiver name from backend
+        // Get caregiver name from backend
         const caregiverNameRes = await fetch(`/api/caregiver?email=${encodeURIComponent(email)}`);
         const nameObj = await caregiverNameRes.json();
-        // backend may return { caregiverName: string } but sheets util might return an array
         let nameRaw = nameObj?.caregiverName ?? nameObj ?? '';
         if (Array.isArray(nameRaw)) nameRaw = nameRaw[0] || '';
         const name = typeof nameRaw === 'string' ? nameRaw : '';
         setCaregiverName(name || "");
-
-        if (!name) {
-          // nothing to fetch
-          setAnimalsForTodayList([]);
-          setGeneralTreatments([]);
-          return;
-        }
-
-        // retrieve all animals that belong to caregiver and have treatments for today
-        const animalsForTodayRes = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}`);
-        const animalsForTodayData: Animal[] = await animalsForTodayRes.json();
-        const list = Array.isArray(animalsForTodayData) ? animalsForTodayData : [];
-        setAnimalsForTodayList(list);
-        console.log("%%%%%%%%%%%% Animals for today fetched:", list);
-
-        // Fetch general treatments (checkbox = TRUE)
-        const generalTreatmentsRes = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}&generalTreatments=true`);
-        const generalTreatmentsData: GeneralTreatment[] = await generalTreatmentsRes.json();
-        const generalList = Array.isArray(generalTreatmentsData) ? generalTreatmentsData : [];
-        setGeneralTreatments(generalList);
-        console.log("%%%%%%%%%%%% General treatments fetched:", generalList);
       } catch (err) {
-        // Optionally show error
-        console.error('Error in fetchCaregiverAndAnimals:', err);
+        console.error('Error in fetchCaregiver:', err);
       } finally {
         setIsLoading(false);
         isFetchingRef.current = false;
       }
     }
-    fetchCaregiverAndAnimals();
+    fetchCaregiver();
   }, [email]);
 
   // Update document title
@@ -158,7 +133,7 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F7F3ED' }}>
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4" style={{ color: '#A67C52' }} />
-          <p className="text-lg text-muted-foreground">טוען טיפולים...</p>
+          <p className="text-lg text-muted-foreground">טוען...</p>
         </div>
       </div>
     );
@@ -166,101 +141,11 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col" style={{ backgroundColor: '#F7F3ED' }}>
-
+      {/* make this a fixed width container centered */}
       <div className="max-w-7xl mx-auto w-full flex-shrink-0">
         <div className="mb-8">
-          <h1 className="mb-2 text-right text-[24px]">שלום, {caregiverName}</h1>
-          <p className="text-muted-foreground text-right">
-            יש לך {animalsForTodayList.length} חיות שהוקצו לך
-            {animalsForTodayList.filter((a: any) => a.hasTreatmentToday).length > 0 && 
-              ` (${animalsForTodayList.filter((a: any) => a.hasTreatmentToday).length} עם טיפולים להיום)`
-            }
-          </p>
+            <h1 className="mb-2 text-5xl sm:text-6xl md:text-7xl text-center font-bold">שלום, {caregiverName}</h1>
         </div>
-
-        {/* Present animalsForTodayList: show animal name, type and button to open record */}
-        {animalsForTodayList.length > 0 && (
-          <Card className="mb-6" style={{ backgroundColor: '#EDE7DF', borderColor: '#EDE7DF' }}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">החיות שלך</CardTitle>
-              <CardDescription>לחץ על "פרטים" לפתיחת תיק החיה. חיות עם טיפולים כלליים להיום מסומנות באפור.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {animalsForTodayList.map(animal => (
-                  <div 
-                    key={animal.id} 
-                    className="flex items-center justify-between p-3 rounded-lg"
-                    style={{ 
-                      backgroundColor: (animal as any).hasTreatmentToday ? '#D3D3D3' : '#FFFFFF',
-                      opacity: (animal as any).hasTreatmentToday ? 0.7 : 1
-                    }}
-                  >
-                    <div className="flex-1">
-                      <div className="text-right font-medium">{animal.name}</div>
-                      <div className="text-sm text-muted-foreground text-right">{(animal as any).animalTypeHebrew || animal.animalType}</div>
-                      {(animal as any).hasTreatmentToday && (animal as any).medicalCases && (
-                        <div className="text-sm text-right mt-1" style={{ color: '#A67C52' }}>
-                          טיפולים כלליים להיום: {(animal as any).medicalCases}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <Button size="sm" onClick={() => onSelectAnimal( animal.animalType, animal.name)}>
-                        פרטים
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* General Treatments Section */}
-        {generalTreatments.length > 0 && (
-          <Card className="mb-6" style={{ backgroundColor: '#E8D7C3', borderColor: '#E8D7C3' }}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Pill className="w-5 h-5" />
-                טיפולים כלליים להיום
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {generalTreatments.map((treatment, index) => (
-                  <div 
-                    key={index} 
-                    className="flex items-center justify-between p-3 rounded-lg"
-                    style={{ backgroundColor: '#FFFFFF' }}
-                  >
-                    <div className="flex-1 text-right">
-                      <div className="font-medium">{treatment.animalName}</div>
-                      <div className="text-sm text-muted-foreground">{treatment.animalType}</div>
-                      <div className="text-sm mt-1" style={{ color: '#A67C52' }}>
-                        <span className="font-medium">טיפול:</span> {treatment.treatment}
-                        {treatment.dosage && <span> | <span className="font-medium">מינון:</span> {treatment.dosage}</span>}
-                      </div>
-                      {treatment.medicalCase && (
-                        <div className="text-sm" style={{ color: '#6B9080' }}>
-                          <span className="font-medium">סיבה:</span> {treatment.medicalCase}
-                        </div>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-1">
-                        תאריך: {treatment.date}
-                      </div>
-                    </div>
-                    <div>
-                      <Button size="sm" onClick={() => onSelectAnimal(treatment.animalType, treatment.animalName)}>
-                        פרטים
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {uncheckedTreatments.length > 0 && (
           <Card className="mb-6" style={{ backgroundColor: '#CFE4D3', borderColor: '#CFE4D3' }}>

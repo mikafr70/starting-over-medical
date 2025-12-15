@@ -867,10 +867,89 @@ export async function deleteAnimalTreatmentsBetweenDates(animalType, animalName,
   } catch (error) {
     console.error('Error in deleteAnimalTreatmentsBetweenDates:', error);
     throw error;
-  }   
+  } 
 }
 
-/*-------------------------------------------------- 
+/*--------------------------------------------------
+  Remove a caregiver from an animal's treatment list
+---------------------------------------------------*/
+export async function removeCaregiverFromAnimal(animalType, animalName, caregiverName, removeAll = false) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> removeCaregiverFromAnimal for animal: ${animalName} of type: ${animalType}, caregiver: ${caregiverName}, removeAll: ${removeAll}`); 
+    const spreadsheetId = ANIMAL_TREATMENT_SHEETS()[animalType].sheetId;
+    
+    if (!spreadsheetId) {
+      throw new Error('No sheet ID found for animal type: ' + animalType);
+    }   
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];   
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    console.log('Headers from sheet:', headers); 
+    const nameColIndex = headers.findIndex(h => h && h.trim() === 'שם');
+    const caregiverColIndex = headers.findIndex(h => h && h.trim() === 'בטיפול');
+    console.log('Name column index:', nameColIndex);
+    console.log('Caregiver column index:', caregiverColIndex);
+    if (nameColIndex === -1) {
+      throw new Error(`Could not find 'שם' header in sheet ${spreadsheetId}`);
+    }
+    if (caregiverColIndex === -1) {
+      throw new Error(`Could not find 'בטיפול' header in sheet ${spreadsheetId}`);
+    } 
+    const rows = await sheet.getRows();
+    let rowIndex = -1;
+    const targetName = (animalName).toString().trim();  
+    const targetRow = rows.find((row, i) => {
+      const cellValue = row._rawData?.[nameColIndex];
+      const rowName = (cellValue).toString().trim();  
+      rowIndex = i;
+      return rowName === targetName;
+    });
+    
+    if (!targetRow) {
+      throw new Error(`Animal with name "${animalName}" not found in sheet ${spreadsheetId}`);
+    }
+    
+    console.log(`Removing caregiver "${caregiverName}" from animal "${animalName}"`);
+    console.log(`Row index: ${rowIndex}`);
+    
+    // Get existing value from raw data before loading cells
+    const existingValue = (targetRow._rawData?.[caregiverColIndex] || '').toString().trim();
+    console.log(`Existing caregivers: ${existingValue}`);
+    
+    // Load the specific cell for the caregiver
+    const columnLetter = String.fromCharCode(65 + caregiverColIndex);
+    const cellsString = `A${rowIndex+1}:${columnLetter}${rowIndex+2}`;
+    await sheet.loadCells(cellsString);
+    const cell = sheet.getCell(rowIndex+1, caregiverColIndex);
+    
+    // Process the existing value
+    if (removeAll) {
+      // Remove all caregivers
+      cell.value = '';
+      console.log(`Removed all caregivers for ${animalName}`);
+    } else if (existingValue) {
+      // Remove only the specified caregiver
+      const existingCaregivers = existingValue.split(',').map(c => c.trim());
+      const updatedCaregivers = existingCaregivers.filter(c => c !== caregiverName.trim());
+      
+      // Update the cell with remaining caregivers
+      cell.value = updatedCaregivers.join(', ');
+    } else {
+      console.log(`No caregivers found for ${animalName}`);
+    }
+    
+    await sheet.saveUpdatedCells();  
+    console.log(`Caregiver ${caregiverName} removed from animal ${animalName} successfully.`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in removeCaregiverFromAnimal:', error);
+    throw error;
+  } 
+}
+
+/*--------------------------------------------------
   Sort animal treatments by date descending
 ---------------------------------------------------*/
 export async function sortAnimalTreatmentsByDateDescending(spreadsheetId){
@@ -1344,11 +1423,11 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     const filesWithTreatmentsToday = [];
     if (!folderId) throw new Error('folderId is required'); 
     const drive = getDriveClient();
-    
-    // TEMPORARY: Set to true to only get files edited today
+    let startDate;
+    /* TEMPORARY: Set to true to only get files edited today
     const ONLY_TODAY_EDITS = true;
     
-    let startDate;
+    
     if (ONLY_TODAY_EDITS) {
       // Get files edited starting from today
       const today = new Date();
@@ -1356,11 +1435,12 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
       startDate = today;
       console.log('TEMPORARY MODE: Fetching only files edited today:', today.toISOString());
     } else {
+      */
       // Original behavior: two weeks ago
       const twoWeeksAgo = new Date();
       twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);// - 14); !!!!!!!!!!!!!!!!!!!!!!!!!!
       startDate = twoWeeksAgo;
-    }
+    //}
     
     const startDateISO = startDate.toISOString();
     
@@ -1540,11 +1620,11 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
     }
 
     // 4) Add headers to the new sheet
-    const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'מקרה', 'הערות'];
+    const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב','טיפול כללי', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'מקרה', 'הערות'];
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId: newSpreadsheetId,
-      range: `${firstSheetName}!A1:L1`,
+      range: `${firstSheetName}!A1:M1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [headers],
@@ -1894,5 +1974,86 @@ async function withSheetsRetry(fn, maxAttempts = 5) {
       await sleep(delay);
       delay *= 2; // exponential backoff
     }
+  }
+}
+
+/*--------------------------------------------------
+  Get animal photo from Photo sheet
+---------------------------------------------------*/
+export async function getAnimalPhoto(animalType, animalName) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> getAnimalPhoto for animal: ${animalName} of type: ${animalType}`);
+    
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
+    if (!spreadsheetId) {
+      console.log('No spreadsheet found for animal');
+      return null;
+    }
+
+    const doc = await getDoc(spreadsheetId);
+    
+    // Find or create Photo sheet
+    let photoSheet = doc.sheetsByTitle['Photo'];
+    if (!photoSheet) {
+      console.log('No Photo sheet found');
+      return null;
+    }
+
+    await photoSheet.loadCells('A1:A2');
+    const cell = photoSheet.getCell(1, 0); // Row 2, Column A (0-indexed)
+    
+    return cell.value || null;
+  } catch (error) {
+    console.error('Error in getAnimalPhoto:', error);
+    return null;
+  }
+}
+
+/*--------------------------------------------------
+  Save animal photo to Photo sheet
+---------------------------------------------------*/
+export async function saveAnimalPhoto(animalType, animalName, photoBase64) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> saveAnimalPhoto for animal: ${animalName} of type: ${animalType}`);
+    
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
+    if (!spreadsheetId) {
+      throw new Error('No spreadsheet found for animal');
+    }
+
+    const doc = await getDoc(spreadsheetId);
+    
+    // Find or create Photo sheet
+    let photoSheet = doc.sheetsByTitle['Photo'];
+    if (!photoSheet) {
+      console.log('Creating new Photo sheet');
+      photoSheet = await doc.addSheet({ 
+        title: 'Photo',
+        headerValues: ['Photo']
+      });
+    }
+
+    // Load cells and save photo
+    await photoSheet.loadCells('A1:A2');
+    
+    // Set header if not exists
+    const headerCell = photoSheet.getCell(0, 0);
+    if (!headerCell.value) {
+      headerCell.value = 'Photo';
+    }
+    
+    // Set photo data
+    const photoCell = photoSheet.getCell(1, 0);
+    photoCell.value = photoBase64;
+    
+    await photoSheet.saveUpdatedCells();
+    console.log('Photo saved successfully');
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveAnimalPhoto:', error);
+    throw error;
   }
 }

@@ -7,9 +7,10 @@ import { AddTreatment } from "./components/AddTreatment";
 import { Navbar } from "./components/Navbar";
 import { Toaster } from "./components/ui/sonner";
 import { MedicalRecords } from "./components/MedicalRecords";
+import { PersonalTreatments } from "./components/PersonalTreatments";
 import React from "react";
 
-type Screen = "login" | "dashboard" | "schedule" | "profile" | "medicalRecords" | "addTreatment" | "addTreatmentFromSchedule";
+type Screen = "login" | "dashboard" | "schedule" | "profile" | "medicalRecords" | "addTreatment" | "addTreatmentFromSchedule" | "personalTreatments";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>("login");
@@ -31,7 +32,7 @@ export default function App() {
   };
 
   const handleNavigate = (screen: string) => {
-    if (screen === "dashboard" || screen === "schedule" || screen === "medicalRecords") {
+    if (screen === "dashboard" || screen === "schedule" || screen === "medicalRecords" || screen === "personalTreatments") {
       setCurrentScreen(screen as Screen);
     }
   };
@@ -109,6 +110,13 @@ export default function App() {
         <DailySchedule 
           onSelectAnimal={handleSelectAnimal}
           onAddTreatment={handleAddTreatmentFromSchedule}
+        />
+      )}
+
+      {currentScreen === "personalTreatments" && (
+        <PersonalTreatments 
+          onSelectAnimal={handleSelectAnimal}
+          email={userEmail}
         />
       )}
 

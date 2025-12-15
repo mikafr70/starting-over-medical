@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { API_ENDPOINTS } from "../config/api";
 
 interface AnimalType {
@@ -38,9 +37,6 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
     special_trimming: "",
     description: "",
     notes: "",
-    drugs: "",
-    castration: "",
-    deworming: "",
     source: "",
     status: "",
     friends: "",
@@ -102,9 +98,6 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
         special_trimming: "",
         description: "",
         notes: "",
-        drugs: "",
-        castration: "",
-        deworming: "",
         source: "",
         status: "",
         friends: "",
@@ -124,17 +117,28 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-right">הוסף חיה חדשה</DialogTitle>
-          <DialogDescription className="text-right">
-            מלא את פרטי החיה החדשה
-          </DialogDescription>
-        </DialogHeader>
+  if (!open) return null;
 
-        <form onSubmit={handleSubmit} className="space-y-3">
+  return (
+    <div className="fixed inset-0 z-[9999] overflow-y-auto" style={{ backgroundColor: '#ffffff' }}>
+      <div className="min-h-screen p-6 bg-white">
+        {/* Header */}
+        <div className="max-w-2xl mx-auto mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <Button 
+              type="button" 
+              variant="ghost" 
+              size="icon"
+              onClick={() => onOpenChange(false)}
+              disabled={isProcessing}
+            >
+              <X className="h-5 w-5" />
+            </Button>
+            <h1 className="text-5xl font-bold text-right">הוסף חיה חדשה</h1>
+          <p className="text-sm text-gray-600 text-right">מלא את פרטי החיה החדשה</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-4">
           {/* Animal Type */}
           <div className="space-y-1">
             <Label className="text-right block text-sm">סוג חיה *</Label>
@@ -278,47 +282,14 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
               className="text-right h-9"
             />
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-right block text-sm">תרופות</Label>
-              <Input
-                value={formData.drugs}
-                onChange={(e) => handleChange('drugs', e.target.value)}
-                placeholder="תרופות"
-                className="text-right h-9"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-right block text-sm">סירוס</Label>
-              <Input
-                value={formData.castration}
-                onChange={(e) => handleChange('castration', e.target.value)}
-                placeholder="סירוס"
-                className="text-right h-9"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-right block text-sm">תילוע</Label>
-              <Input
-                value={formData.deworming}
-                onChange={(e) => handleChange('deworming', e.target.value)}
-                placeholder="תילוע"
-                className="text-right h-9"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-right block text-sm">מקור</Label>
-              <Input
-                value={formData.source}
-                onChange={(e) => handleChange('source', e.target.value)}
-                placeholder="מקור"
-                className="text-right h-9"
-              />
-            </div>
+          <div className="space-y-1">
+            <Label className="text-right block text-sm">מקור</Label>
+            <Input
+              value={formData.source}
+              onChange={(e) => handleChange('source', e.target.value)}
+              placeholder="מקור"
+              className="text-right h-9"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -342,7 +313,8 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
             </div>
           </div>
 
-          <DialogFooter className="gap-2">
+          {/* Footer Buttons */}
+          <div className="flex gap-2 justify-end pt-4 border-t">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isProcessing}>
               ביטול
             </Button>
@@ -356,9 +328,10 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
                 'שמור'
               )}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
+  </div>
   );
 }

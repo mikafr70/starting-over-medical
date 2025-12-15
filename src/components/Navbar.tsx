@@ -1,6 +1,6 @@
-import { Home, Calendar, BookOpen, Heart, LogOut } from "lucide-react";
+import { Home, Calendar, BookOpen, Heart, LogOut, ClipboardList } from "lucide-react";
 import { Button } from "./ui/button";
-import react from "react";
+import React from "react";
 
 interface NavbarProps {
   currentScreen: string;
@@ -37,6 +37,15 @@ export function Navbar({ currentScreen, onNavigate, onLogout, username }: Navbar
             >
               <Calendar className="w-4 h-4" />
               <span className="hidden sm:inline">לוח זמנים</span>
+            </Button>
+            <Button
+              variant={currentScreen === "personalTreatments" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => onNavigate("personalTreatments")}
+              className="gap-2"
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span className="hidden sm:inline">טיפולים אישיים</span>
             </Button>
             <Button
               variant={currentScreen === "medicalRecords" ? "default" : "ghost"}
