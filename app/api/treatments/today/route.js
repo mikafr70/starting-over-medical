@@ -1,5 +1,5 @@
 import { time } from 'console';
-import { getRecentlyEditedFilesInFolderWithTreatmentsToday, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded} from '../../../../src/lib/sheets.js';
+import { getRecentlyEditedFilesInFolderWithTreatmentsToday, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded, getAnimalPhoto} from '../../../../src/lib/sheets.js';
 // app/api/treatments/today/route.ts
 export const dynamic = 'force-dynamic';      // don't pre-render at build
 export const fetchCache = 'force-no-store';  // don't cache in the static cache
@@ -17,6 +17,7 @@ export async function GET() {
     await ensureConfigLoaded();
 
     const allTreatments = [];
+    const photoCache = new Map(); // Cache photos to avoid duplicate fetches
     
     console.log('Starting to fetch treatments for yesterday, today, and tomorrow...');
 
@@ -71,6 +72,20 @@ export async function GET() {
               if (!animalName) {
                 animalName = fileName.replace('.xlsx', '').replace('.xls', '');
               }
+
+              // Fetch photo once per animal
+              const cacheKey = `${animalType}_${animalName}`;
+              if (!photoCache.has(cacheKey)) {
+                try {
+                  const photo = await getAnimalPhoto(animalType, animalName);
+                  photoCache.set(cacheKey, photo || null);
+                } catch (error) {
+                  console.log(`No photo found for ${animalName} (${animalType})`);
+                  photoCache.set(cacheKey, null);
+                }
+              }
+              
+              const animalPhoto = photoCache.get(cacheKey);
               
               // Create a treatment entry for each time slot
               treatmentTimes.forEach(timeInfo => {
@@ -79,7 +94,7 @@ export async function GET() {
                   animalName: animalName,
                   animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
                   animalTypeKey: animalType,
-                  animalImage: `/animal-avatars/${animalName.toLowerCase()}.jpg`,
+                  animalImage: animalPhoto || '',
                   medicalCase: timeInfo.medicalCase || 'ללא תיאור',
                   treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
                   time: getTimeBySlot(timeInfo.timeSlot),

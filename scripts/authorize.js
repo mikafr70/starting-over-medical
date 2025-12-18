@@ -7,7 +7,10 @@ import path from 'path';
 import { google } from 'googleapis';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
-import { env } from 'process';
+import { config } from 'dotenv';
+
+// Load environment variables from .env.local
+config({ path: '.env.local' });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +52,12 @@ async function authorize() {
     //const token = fs.readFileSync(TOKEN_PATH, 'utf8');
     const token = process.env.OAUTH_TOKEN_JSON;
     
+    // Force new token if FORCE_NEW_TOKEN is set
+    if (process.env.FORCE_NEW_TOKEN === 'true' || !token) {
+      console.log('⚠️  Forcing new token generation...');
+      return getNewToken(oAuth2Client);
+    }
+    
     oAuth2Client.setCredentials(JSON.parse(token));
 //    console.log('✓ Token already exists at:', TOKEN_PATH);
     console.log('✓ Authorization complete!');
@@ -86,7 +95,9 @@ function getNewToken(oAuth2Client) {
       // Store the token
       //fs.writeFileSync(TOKEN_PATH, JSON.stringify(token, null, 2));
       //console.log('\n✓ Token stored to:', TOKEN_PATH);
-      process.env.OAUTH_TOKEN_JSON = JSON.stringify(token, null, 2);
+      console.log('\n✓ New token generated!');
+      console.log('\n📋 Copy this token to your .env.local file as OAUTH_TOKEN_JSON:');
+      console.log('\n' + JSON.stringify(token) + '\n');
       console.log('✓ Authorization complete! You can now create spreadsheets.');
     });
   });

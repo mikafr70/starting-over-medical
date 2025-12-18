@@ -7,6 +7,7 @@ import { Loader2, Pill, UserMinus } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
+import { ImageWithFallback } from "./figma/ImageWithFallback";
 import React from "react";
 
 interface Treatment {
@@ -27,10 +28,12 @@ interface Treatment {
 interface GeneralTreatment {
   animalName: string;
   animalType: string;
+  animalTypeKey: string;
   treatment: string;
   medicalCase: string;
   dosage: string;
   date: string;
+  image?: string;
 }
 
 interface Animal {
@@ -88,22 +91,30 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
 
   useEffect(() => {
     async function fetchCaregiverAndAnimals() {
+      console.log('🔵 PersonalTreatments useEffect called, email:', email);
+      console.log('🔵 isFetchingRef.current:', isFetchingRef.current);
+      console.log('🔵 lastEmailRef.current:', lastEmailRef.current);
+      
       if (!email) {
+        console.log('⚠️ No email, skipping fetch');
         setIsLoading(false);
         return;
       }
 
       // Prevent duplicate fetches
       if (isFetchingRef.current) {
+        console.log('⚠️ Already fetching, skipping');
         return;
       }
       
       // If we already fetched for this email, skip the fetch
-      if (lastEmailRef.current === email) {
+      if (lastEmailRef.current === email && animalsForTodayList.length > 0) {
+        console.log('⚠️ Already fetched for this email, skipping');
         setIsLoading(false);
         return;
       }
 
+      console.log('✅ Starting fetch for email:', email);
       isFetchingRef.current = true;
       lastEmailRef.current = email;
       setIsLoading(true);
@@ -119,21 +130,22 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
 
         if (!name) {
           setAnimalsForTodayList([]);
+          isFetchingRef.current = false;
           return;
         }
 
-        // Retrieve all animals that belong to caregiver and have treatments for today
-        const animalsForTodayRes = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}`);
-        const animalsForTodayData: Animal[] = await animalsForTodayRes.json();
-        const list = Array.isArray(animalsForTodayData) ? animalsForTodayData : [];
+        // 2. Fetch both animals and general treatments in ONE API call
+        console.log('🔵 Fetching animals AND general treatments in single call');
+        const response = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}&includeGeneralTreatments=true`);
+        const data = await response.json();
+        
+        const list = Array.isArray(data.animals) ? data.animals : [];
+        const generalList = Array.isArray(data.generalTreatments) ? data.generalTreatments : [];
+        
         setAnimalsForTodayList(list);
-        console.log("%%%%%%%%%%%% Personal Treatments - Animals for today fetched:", list);
-
-        // Fetch general treatments (checkbox = TRUE)
-        const generalTreatmentsRes = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}&generalTreatments=true`);
-        const generalTreatmentsData: GeneralTreatment[] = await generalTreatmentsRes.json();
-        const generalList = Array.isArray(generalTreatmentsData) ? generalTreatmentsData : [];
         setGeneralTreatments(generalList);
+        
+        console.log("%%%%%%%%%%%% Personal Treatments - Animals fetched:", list);
         console.log("%%%%%%%%%%%% Personal Treatments - General treatments fetched:", generalList);
       } catch (err) {
         console.error('Error in fetchCaregiverAndAnimals:', err);
@@ -250,12 +262,19 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
                 {generalTreatments.map((treatment, index) => (
                   <div 
                     key={index} 
-                    className="flex items-center justify-between p-3 rounded-lg"
+                    className="flex items-center justify-between p-3 rounded-lg gap-3"
                     style={{ backgroundColor: '#FFFFFF' }}
                   >
+                    <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                      <ImageWithFallback
+                        src={treatment.image || ''}
+                        alt={treatment.animalName}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                     <div className="flex-1 text-right">
                       <div className="font-medium">{treatment.animalName}</div>
-                      <div className="text-sm text-muted-foreground">{animalTypeToHebrew[treatment.animalType]}</div>
+                      <div className="text-sm text-muted-foreground">{treatment.animalType}</div>
                       <div className="text-sm mt-1" style={{ color: '#A67C52' }}>
                         <span className="font-medium">טיפול:</span> {treatment.treatment}
                         {treatment.dosage && <span> | <span className="font-medium">מינון:</span> {treatment.dosage}</span>}
@@ -269,11 +288,9 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
                         תאריך: {treatment.date}
                       </div>
                     </div>
-                    <div>
-                      <Button size="sm" onClick={() => onSelectAnimal(treatment.animalType, treatment.animalName)}>
-                        פרטים
-                      </Button>
-                    </div>
+                    <Button size="sm" onClick={() => onSelectAnimal(treatment.animalTypeKey, treatment.animalName)}>
+                      פרטים
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -293,12 +310,19 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
                 {animalsForTodayList.map(animal => (
                   <div 
                     key={animal.id} 
-                    className="flex items-center justify-between p-3 rounded-lg"
+                    className="flex items-center justify-between p-3 rounded-lg gap-3"
                     style={{ 
                       backgroundColor: (animal as any).hasTreatmentToday ? '#D3D3D3' : '#FFFFFF',
                       opacity: (animal as any).hasTreatmentToday ? 0.7 : 1
                     }}
                   >
+                    <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                      <ImageWithFallback
+                        src={animal.image || ''}
+                        alt={animal.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                     <div className="flex-1">
                       <div className="text-right font-medium">{animal.name}</div>
                       <div className="text-sm text-muted-foreground text-right">{animalTypeToHebrew[animal.animalType]}</div>

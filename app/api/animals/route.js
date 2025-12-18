@@ -1,4 +1,4 @@
-import { getAnimals, getAnimalsForCaregiverWithTreatementsToday, getGeneralTreatmentsForCaregiver, ensureConfigLoaded, addAnimalToList, createAnimalTreatmentSheet } from '@/src/lib/sheets';
+import { getAnimals, getAnimalsAndTreatmentsForCaregiver, ensureConfigLoaded, addAnimalToList, createAnimalTreatmentSheet } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -20,21 +20,16 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const caregiver = searchParams.get('caregiver');
-    const generalTreatments = searchParams.get('generalTreatments');
-
-    if(caregiver && generalTreatments === 'true'){
-      console.log('Fetching general treatments for caregiver:', caregiver);
-      const treatments = await getGeneralTreatmentsForCaregiver(caregiver);
-      return new Response(JSON.stringify(treatments), { 
-        status: 200, 
-        headers: CORS_HEADERS 
-      });
-    }
+    const includeGeneralTreatments = searchParams.get('includeGeneralTreatments');
 
     if(caregiver ){
-      console.log('Filtering animals for caregiver:', caregiver);
-      const animals = await getAnimalsForCaregiverWithTreatementsToday(caregiver);
-      return new Response(JSON.stringify(animals), { 
+      console.log('Fetching data for caregiver:', caregiver);
+      const includeGeneral = includeGeneralTreatments === 'true';
+      
+      // Fetch animals and optionally general treatments in ONE pass
+      const result = await getAnimalsAndTreatmentsForCaregiver(caregiver, includeGeneral);
+      
+      return new Response(JSON.stringify(result), { 
         status: 200, 
         headers: CORS_HEADERS 
       });

@@ -1,4 +1,4 @@
-import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded, getAnimalTypeKey, setCaregiverForAnimal } from '@/src/lib/sheets';
+import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded, getAnimalTypeKey, setCaregiverForAnimal, createAnimalTreatmentSheet, getAnimals } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -42,14 +42,38 @@ export async function POST(request) {
       });
     }
     console.log('search for the animal sheet on:', ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId);
-    const animalSheetId = await findSheetIdByName(ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId, animalName);
+    let animalSheetId = await findSheetIdByName(ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId, animalName);
     console.log('found sheet id:', animalSheetId);
 
+    // If no sheet exists, create one with format "name id"
     if (!animalSheetId) {
-      return new Response(JSON.stringify({ error: 'No sheet found for this animal', animalName }), {
-        status: 404,
-        headers: CORS_HEADERS
-      });
+      console.log(`No treatment sheet found for ${animalName}, creating new sheet...`);
+      
+      // Get animal info to find the ID
+      const animals = await getAnimals(animalTypeKey);
+      const animal = animals.find(a => a.name === animalName);
+      
+      if (!animal || !animal.id) {
+        return new Response(JSON.stringify({ error: 'Animal not found in main list or missing ID', animalName }), {
+          status: 404,
+          headers: CORS_HEADERS
+        });
+      }
+      
+      // Create sheet with format "name id"
+      const sheetName = `${animalName} ${animal.id}`;
+      console.log(`Creating treatment sheet with name: ${sheetName}`);
+      
+      try {
+        animalSheetId = await createAnimalTreatmentSheet(animalTypeKey, sheetName);
+        console.log(`Successfully created treatment sheet with ID: ${animalSheetId}`);
+      } catch (createError) {
+        console.error('Failed to create treatment sheet:', createError);
+        return new Response(JSON.stringify({ error: 'Failed to create treatment sheet for animal', details: createError.message }), {
+          status: 500,
+          headers: CORS_HEADERS
+        });
+      }
     }
 
     const { treatments } = await request.json();

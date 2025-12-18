@@ -36,7 +36,7 @@ export function Navbar({ currentScreen, onNavigate, onLogout, username }: Navbar
               className="gap-2"
             >
               <Calendar className="w-4 h-4" />
-              <span className="hidden sm:inline">לוח זמנים</span>
+              <span className="hidden sm:inline">יומן</span>
             </Button>
             <Button
               variant={currentScreen === "personalTreatments" ? "default" : "ghost"}

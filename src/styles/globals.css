@@ -89,6 +89,13 @@
   --sidebar-ring: oklch(0.439 0 0);
 }
 
+.big-title {
+  font-size: clamp(2rem, 5vw, 3rem); /* nice “normal title” range */
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -200,3 +207,4 @@
 html {
   font-size: var(--font-size);
 }
+

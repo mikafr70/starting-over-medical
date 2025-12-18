@@ -140,63 +140,22 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
   }
 
   return (
-    <div className="min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col" style={{ backgroundColor: '#F7F3ED' }}>
-      {/* make this a fixed width container centered */}
-      <div className="max-w-7xl mx-auto w-full flex-shrink-0">
-        <div className="mb-8">
-            <h1 className="mb-2 text-5xl sm:text-6xl md:text-7xl text-center font-bold">שלום, {caregiverName}</h1>
-        </div>
-
-        {uncheckedTreatments.length > 0 && (
-          <Card className="mb-6" style={{ backgroundColor: '#CFE4D3', borderColor: '#CFE4D3' }}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5" />
-                טיפולים לא מסומנים להיום
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {uncheckedTreatments.map((animal) => (
-                  <div
-                    key={animal.id}
-                    className="flex items-center justify-between p-3 rounded-lg"
-                    style={{ backgroundColor: '#FFFFFF' }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
-                        <ImageWithFallback
-                          src={animal.image}
-                          alt={animal.name}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div>
-                        <p className="text-right">{animal.name}</p>
-                        <p className="text-sm text-muted-foreground">{animal.animalType}</p>
-                        <ul className="text-xs text-red-600">
-                          {(animal.uncheckedTreatments ?? []).map((t, i) => (
-                            <li key={i}>
-                              {t.treatment} - בוקר: {t.morning} | צהריים: {t.noon} | ערב: {t.evening}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Button size="sm" onClick={() => onSelectAnimal(animal.animalType, animal.name)}>
-                        פרטים
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F7F3ED' }}>
+      <header style={{ paddingTop: '200px', paddingBottom: '40px' }}>
+        <div style={{ marginBottom: '2rem' }}>
+        <h1
+          style={{
+            fontSize: '2.5rem',    // ~40px, normal big title
+            fontWeight: 600,
+            textAlign: 'center',
+            margin: 0,
+          }}
+        >
+          ברוך הבא, {caregiverName}!
+        </h1>
       </div>
-
-      <div className="flex-1 flex items-center justify-center min-h-[400px]">
+      </header>
+      <div className="flex-1 flex items-start justify-center pt-20">
         <div className="flex gap-4">
           <Button
             onClick={onAddTreatment}

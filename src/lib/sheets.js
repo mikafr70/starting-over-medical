@@ -1062,73 +1062,125 @@ export async function getAllCaregivers() {
   }
 }
 
-/*-------------------------------------------------- 
-  Get animals for caregiver with treatments today
+/*--------------------------------------------------
+  Get animals and optionally general treatments for caregiver in ONE pass
 ---------------------------------------------------*/
-export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) {
+export async function getAnimalsAndTreatmentsForCaregiver(caregiverName, includeGeneralTreatments = false) {
   try {
     await ensureConfigLoaded();
-    console.log(`>>> getAnimalsForCaregiverWithTreatementsToday for caregiver: ${caregiverName}`);
+    console.log(`>>> getAnimalsAndTreatmentsForCaregiver for caregiver: ${caregiverName}, includeGeneralTreatments: ${includeGeneralTreatments}`);
     const todayDate = new Date(); 
     const todayStr = `${todayDate.getDate()}/${todayDate.getMonth() + 1}/${todayDate.getFullYear()}`;
     const allAssignedAnimals = [];
-    // loop through all animal types
+    const allGeneralTreatments = [];
     const sheets = ANIMAL_TREATMENT_SHEETS();
 
     for (const animalType of Object.keys(sheets)) {
-      console.log(`Processing animal type: ${animalType}`);
+      try {
+        console.log(`Processing animal type: ${animalType}`);
 
-      const animals = await getAnimals(animalType);
-      
-      const assignedAnimals = animals.filter(animal => {
-        const inTreatementsField = (animal.in_treatment || '').toString();  
-        const caregivers = inTreatementsField.split(',').map(name => name.trim());
-        return caregivers.includes(caregiverName);
-      });
-      
-      for (const animal of assignedAnimals) {
-        // Set basic animal info
-        animal.animalType = animalType;
-        animal.animalTypeHebrew = sheets[animalType].displayName;
-        animal.hasTreatmentToday = false;
-        animal.medicalCases = '';
+        // Add timeout to prevent hanging
+        const animalsPromise = getAnimals(animalType);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout fetching animals')), 15000)
+        );
         
-        const spreadsheetId = await findSpreadsheetInFolder(animalType, animal.id);
-        console.log(`Animal ID: ${animal.id}, Spreadsheet ID: ${spreadsheetId}`);
+        const animals = await Promise.race([animalsPromise, timeoutPromise]);
         
-        if(spreadsheetId) {
-          // Pass true to exclude treatments with general checkbox checked from being counted
-          const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr, true);
-          if(hasTreatment) {
-            // For caregiver screen: only count general treatments (empty time slots) as "treatment for today"
-            // Scheduled treatments (with morning/noon/evening checkboxes) should NOT show as greyed
-            const generalTreatments = treatmentTimes.filter(t => t.isGeneral === true);
-            
-            if(generalTreatments.length > 0) {
-              animal.hasTreatmentToday = true;
-              // Collect all unique medical cases for general treatments only
-              animal.medicalCases = [...new Set(generalTreatments.map(t => t.medicalCase))].join(', ');
-              console.log(`Animal : ${animal.name} has general treatment today. Cases: ${animal.medicalCases}`);
+        const assignedAnimals = animals.filter(animal => {
+          const inTreatementsField = (animal.in_treatment || '').toString();  
+          const caregivers = inTreatementsField.split(',').map(name => name.trim());
+          return caregivers.includes(caregiverName);
+        });
+        
+        for (const animal of assignedAnimals) {
+          // Set basic animal info
+          animal.animalType = animalType;
+          animal.animalTypeHebrew = sheets[animalType].displayName;
+          animal.hasTreatmentToday = false;
+          animal.medicalCases = '';
+          animal.image = ''; // Default to empty
+          
+          const spreadsheetId = await findSpreadsheetInFolder(animalType, animal.id);
+          console.log(`Animal ID: ${animal.id}, Spreadsheet ID: ${spreadsheetId}`);
+          
+          if(spreadsheetId) {
+            // Pass true to exclude treatments with general checkbox checked from being counted
+            const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr, true);
+            if(hasTreatment) {
+              // For caregiver screen: only count general treatments (empty time slots) as "treatment for today"
+              const generalTreatments = treatmentTimes.filter(t => t.isGeneral === true);
+              
+              if(generalTreatments.length > 0) {
+                animal.hasTreatmentToday = true;
+                animal.medicalCases = [...new Set(generalTreatments.map(t => t.medicalCase))].join(', ');
+                console.log(`Animal : ${animal.name} has general treatment today. Cases: ${animal.medicalCases}`);
+              }
+              
+              // If we need general treatments, collect them here
+              if (includeGeneralTreatments) {
+                generalTreatments.forEach(t => {
+                  allGeneralTreatments.push({
+                    animalName: animal.name,
+                    animalType: sheets[animalType].displayName,
+                    animalTypeKey: animalType,
+                    treatment: t.treatment,
+                    medicalCase: t.medicalCase,
+                    dosage: t.dosage,
+                    date: todayStr,
+                    image: animal.image || ''
+                  });
+                });
+              }
             }
+          } else {
+            console.log(`No treatment sheet found for animal ID: ${animal.id}`);
           }
-        } else {
-          console.log(`No treatment sheet found for animal ID: ${animal.id}`);
+          
+          allAssignedAnimals.push(animal);
         }
         
-        // Add all assigned animals, regardless of whether they have treatments today
-        allAssignedAnimals.push(animal);
+        // Fetch photos in parallel for all assigned animals of this type
+        if (assignedAnimals.length > 0) {
+          const photoPromises = assignedAnimals.map(async (animal) => {
+            try {
+              const photo = await getAnimalPhoto(animalType, animal.name);
+              animal.image = photo || '';
+            } catch (error) {
+              animal.image = '';
+            }
+          });
+          await Promise.all(photoPromises);
+        }
+        
+        console.log(`Found ${assignedAnimals.length} assigned animals for caregiver ${caregiverName} in type ${animalType}, ${assignedAnimals.filter(a => a.hasTreatmentToday).length} with treatments today`);
+      } catch (error) {
+        console.error(`Error processing animal type ${animalType}:`, error);
       }
-      console.log(`Found ${assignedAnimals.length} assigned animals for caregiver ${caregiverName} in type ${animalType}, ${assignedAnimals.filter(a => a.hasTreatmentToday).length} with treatments today`);
     }
-    return allAssignedAnimals;  
+    
+    if (includeGeneralTreatments) {
+      console.log(`Total general treatments for today: ${allGeneralTreatments.length}`);
+      return { animals: allAssignedAnimals, generalTreatments: allGeneralTreatments };
+    }
+    
+    return { animals: allAssignedAnimals };
   } catch (error) {
-    console.error('Error in getAnimalsForCaregiverWithTreatementsToday:', error);
+    console.error('Error in getAnimalsAndTreatmentsForCaregiver:', error);
     throw error;
   }
 }
 
 /*--------------------------------------------------
-  Get all general treatments (checkbox = TRUE) for caregiver's animals
+  Get animals with treatments for caregiver (LEGACY - use getAnimalsAndTreatmentsForCaregiver instead)
+---------------------------------------------------*/
+export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) {
+  const result = await getAnimalsAndTreatmentsForCaregiver(caregiverName, false);
+  return result.animals;
+}
+
+/*--------------------------------------------------
+  Get all general treatments (checkbox = TRUE) for caregiver's animals (LEGACY)
 ---------------------------------------------------*/
 export async function getGeneralTreatmentsForCaregiver(caregiverName) {
   try {
@@ -1620,7 +1672,7 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
     }
 
     // 4) Add headers to the new sheet
-    const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב','טיפול כללי', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'מקרה', 'הערות'];
+    const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב', 'טיפול כללי', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'סיבת טיפול', 'הערות'];
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId: newSpreadsheetId,
