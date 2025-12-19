@@ -202,11 +202,11 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-right block text-sm">בטיפול</Label>
+              <Label className="text-right block text-sm">מטפל</Label>
               <Input
                 value={formData.in_treatment}
                 onChange={(e) => handleChange('in_treatment', e.target.value)}
-                placeholder="בטיפול"
+                placeholder="מטפל"
                 className="text-right h-9"
               />
             </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
-import { Loader2, Pill, UserMinus } from "lucide-react";
+import { Loader2, Pill, UserMinus, Check, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ interface GeneralTreatment {
   dosage: string;
   date: string;
   image?: string;
+  isCompleted?: boolean;
 }
 
 interface Animal {
@@ -58,6 +59,8 @@ interface Animal {
   animalType: string;
   image?: string;
   uncheckedTreatments?: Treatment[];
+  isPersonalComplete?: boolean;
+  isPersonalIncomplete?: boolean;
 }
 const animalTypeToHebrew: { [key: string]: string } = {
     donkey: "חמור", 
@@ -86,6 +89,7 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
   const [confirmRemoveDialogOpen, setConfirmRemoveDialogOpen] = useState(false);
   const [selectedAnimalToRemove, setSelectedAnimalToRemove] = useState<string>("");
   const [isRemoving, setIsRemoving] = useState(false);
+  const [completingTreatment, setCompletingTreatment] = useState<string | null>(null);
   const isFetchingRef = useRef(false);
   const lastEmailRef = useRef<string>("");
 
@@ -212,6 +216,78 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
     setConfirmRemoveDialogOpen(true);
   };
 
+  const handleCompleteGeneralTreatment = async (animalTypeKey: string, animalName: string, date: string, index: number) => {
+    setCompletingTreatment(`${animalTypeKey}-${animalName}-${date}`);
+    try {
+      const response = await fetch('/api/treatments/complete-general', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          animalType: animalTypeKey,
+          animalName: animalName,
+          date: date,
+          markAsComplete: true,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to complete general treatment');
+      }
+
+      toast.success("הטיפול סומן כבוצע");
+      
+      // Update the treatment in the list to mark as completed
+      setGeneralTreatments(prev => 
+        prev.map((t, i) => 
+          i === index ? { ...t, isCompleted: true } : t
+        )
+      );
+    } catch (error) {
+      console.error('Error completing general treatment:', error);
+      toast.error("שגיאה בסימון הטיפול כבוצע");
+    } finally {
+      setCompletingTreatment(null);
+    }
+  };
+
+  const handleIncompleteGeneralTreatment = async (animalTypeKey: string, animalName: string, date: string, index: number) => {
+    setCompletingTreatment(`${animalTypeKey}-${animalName}-${date}`);
+    try {
+      const response = await fetch('/api/treatments/complete-general', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          animalType: animalTypeKey,
+          animalName: animalName,
+          date: date,
+          markAsComplete: false,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark general treatment as incomplete');
+      }
+
+      toast.success("הטיפול סומן כלא בוצע");
+      
+      // Update the treatment in the list to mark as incomplete
+      setGeneralTreatments(prev => 
+        prev.map((t, i) => 
+          i === index ? { ...t, isCompleted: false } : t
+        )
+      );
+    } catch (error) {
+      console.error('Error marking general treatment as incomplete:', error);
+      toast.error("שגיאה בסימון הטיפול כלא בוצע");
+    } finally {
+      setCompletingTreatment(null);
+    }
+  };
+
   // Show loading screen while fetching data
   if (isLoading) {
     return (
@@ -231,9 +307,6 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
           <h1 className="mb-2 text-right text-[24px]">טיפולים אישיים - {caregiverName}</h1>
           <p className="text-muted-foreground text-right">
             יש לך {animalsForTodayList.length} חיות שהוקצו לך
-            {animalsForTodayList.filter((a: any) => a.hasTreatmentToday).length > 0 && 
-              ` (${animalsForTodayList.filter((a: any) => a.hasTreatmentToday).length} עם טיפולים להיום)`
-            }
           </p>
           <div className="mt-4">
             <Button
@@ -248,100 +321,217 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
           </div>
         </div>
 
+        {/* Personal Treatments Section */}
+        {(animalsForTodayList.filter(a => a.isPersonalIncomplete).length > 0 || 
+          animalsForTodayList.filter(a => a.isPersonalComplete).length > 0) && (
+          <Card className="mb-6" style={{ backgroundColor: '#E8D7C3', borderColor: '#E8D7C3' }}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Pill className="w-5 h-5" />
+                טיפולים אישיים
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {/* Incomplete personal treatments first */}
+                {animalsForTodayList
+                  .filter(a => a.isPersonalIncomplete)
+                  .map(animal => (
+                    <div 
+                      key={animal.id} 
+                      className="flex items-center justify-between p-3 rounded-lg gap-3"
+                      style={{ backgroundColor: '#FFFFFF' }}
+                    >
+                      <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                        <ImageWithFallback
+                          src={animal.image || ''}
+                          alt={animal.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 text-right">
+                        <div className="font-medium">{animal.name}</div>
+                        <div className="text-sm text-muted-foreground">{animalTypeToHebrew[animal.animalType]}</div>
+                      </div>
+                      <Button size="sm" onClick={() => onSelectAnimal(animal.animalType, animal.name)}>
+                        פרטים
+                      </Button>
+                    </div>
+                  ))}
+                {/* Complete personal treatments - greyed */}
+                {animalsForTodayList
+                  .filter(a => a.isPersonalComplete)
+                  .map(animal => (
+                    <div 
+                      key={animal.id} 
+                      className="flex items-center justify-between p-3 rounded-lg gap-3"
+                      style={{ 
+                        backgroundColor: '#D3D3D3',
+                        opacity: 0.7
+                      }}
+                    >
+                      <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                        <ImageWithFallback
+                          src={animal.image || ''}
+                          alt={animal.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 text-right">
+                        <div className="font-medium">{animal.name}</div>
+                        <div className="text-sm text-muted-foreground">{animalTypeToHebrew[animal.animalType]}</div>
+                      </div>
+                      <Button size="sm" onClick={() => onSelectAnimal(animal.animalType, animal.name)}>
+                        פרטים
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* General Treatments Section */}
         {generalTreatments.length > 0 && (
           <Card className="mb-6" style={{ backgroundColor: '#E8D7C3', borderColor: '#E8D7C3' }}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Pill className="w-5 h-5" />
-                טיפולים כלליים להיום
+                טיפולים כלליים
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {generalTreatments.map((treatment, index) => (
-                  <div 
-                    key={index} 
-                    className="flex items-center justify-between p-3 rounded-lg gap-3"
-                    style={{ backgroundColor: '#FFFFFF' }}
-                  >
-                    <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
-                      <ImageWithFallback
-                        src={treatment.image || ''}
-                        alt={treatment.animalName}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className="flex-1 text-right">
-                      <div className="font-medium">{treatment.animalName}</div>
-                      <div className="text-sm text-muted-foreground">{treatment.animalType}</div>
-                      <div className="text-sm mt-1" style={{ color: '#A67C52' }}>
-                        <span className="font-medium">טיפול:</span> {treatment.treatment}
-                        {treatment.dosage && <span> | <span className="font-medium">מינון:</span> {treatment.dosage}</span>}
-                      </div>
-                      {treatment.medicalCase && (
-                        <div className="text-sm" style={{ color: '#6B9080' }}>
-                          <span className="font-medium">סיבה:</span> {treatment.medicalCase}
+                {/* Incomplete general treatments first */}
+                {generalTreatments
+                  .filter(t => !t.isCompleted)
+                  .map((treatment, index) => {
+                    const actualIndex = generalTreatments.findIndex(t => 
+                      t.animalName === treatment.animalName && 
+                      t.date === treatment.date && 
+                      t.medicalCase === treatment.medicalCase
+                    );
+                    const isCompleting = completingTreatment === `${treatment.animalTypeKey}-${treatment.animalName}-${treatment.date}`;
+                    
+                    return (
+                      <div 
+                        key={actualIndex} 
+                        className="flex items-center justify-between p-3 rounded-lg gap-3"
+                        style={{ backgroundColor: '#FFFFFF' }}
+                      >
+                        <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                          <ImageWithFallback
+                            src={treatment.image || ''}
+                            alt={treatment.animalName}
+                            className="w-full h-full object-cover"
+                          />
                         </div>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-1">
-                        תאריך: {treatment.date}
+                        <div className="flex-1 text-right">
+                          <div className="font-medium">{treatment.animalName}</div>
+                          <div className="text-sm text-muted-foreground">{treatment.animalType}</div>
+                          <div className="text-sm mt-1" style={{ color: '#A67C52' }}>
+                            <span className="font-medium">טיפול:</span> {treatment.treatment}
+                            {treatment.dosage && <span> | <span className="font-medium">מינון:</span> {treatment.dosage}</span>}
+                          </div>
+                          {treatment.medicalCase && (
+                            <div className="text-sm" style={{ color: '#6B9080' }}>
+                              <span className="font-medium">סיבה:</span> {treatment.medicalCase}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleCompleteGeneralTreatment(treatment.animalTypeKey, treatment.animalName, treatment.date, actualIndex)}
+                            disabled={isCompleting}
+                          >
+                            {isCompleting ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Check className="w-4 h-4 ml-1" />
+                                סמן כבוצע
+                              </>
+                            )}
+                          </Button>
+                          <Button size="sm" onClick={() => onSelectAnimal(treatment.animalTypeKey, treatment.animalName)}>
+                            פרטים
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                    <Button size="sm" onClick={() => onSelectAnimal(treatment.animalTypeKey, treatment.animalName)}>
-                      פרטים
-                    </Button>
-                  </div>
-                ))}
+                    );
+                  })}
+                {/* Complete general treatments - greyed */}
+                {generalTreatments
+                  .filter(t => t.isCompleted)
+                  .map((treatment, index) => {
+                    const actualIndex = generalTreatments.findIndex(t => 
+                      t.animalName === treatment.animalName && 
+                      t.date === treatment.date && 
+                      t.medicalCase === treatment.medicalCase &&
+                      t.isCompleted === true
+                    );
+                    const isUpdating = completingTreatment === `${treatment.animalTypeKey}-${treatment.animalName}-${treatment.date}`;
+                    
+                    return (
+                      <div 
+                        key={actualIndex} 
+                        className="flex items-center justify-between p-3 rounded-lg gap-3"
+                        style={{ 
+                          backgroundColor: '#D3D3D3',
+                          opacity: 0.7
+                        }}
+                      >
+                        <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                          <ImageWithFallback
+                            src={treatment.image || ''}
+                            alt={treatment.animalName}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1 text-right">
+                          <div className="font-medium">{treatment.animalName}</div>
+                          <div className="text-sm text-muted-foreground">{treatment.animalType}</div>
+                          <div className="text-sm mt-1" style={{ color: '#A67C52' }}>
+                            <span className="font-medium">טיפול:</span> {treatment.treatment}
+                            {treatment.dosage && <span> | <span className="font-medium">מינון:</span> {treatment.dosage}</span>}
+                          </div>
+                          {treatment.medicalCase && (
+                            <div className="text-sm" style={{ color: '#6B9080' }}>
+                              <span className="font-medium">סיבה:</span> {treatment.medicalCase}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleIncompleteGeneralTreatment(treatment.animalTypeKey, treatment.animalName, treatment.date, actualIndex)}
+                            disabled={isUpdating}
+                          >
+                            {isUpdating ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <>
+                                <X className="w-4 h-4 ml-1" />
+                                סמן כלא בוצע
+                              </>
+                            )}
+                          </Button>
+                          <Button size="sm" onClick={() => onSelectAnimal(treatment.animalTypeKey, treatment.animalName)}>
+                            פרטים
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Show all animals assigned to caregiver */}
-        {animalsForTodayList.length > 0 && (
-          <Card className="mb-6" style={{ backgroundColor: '#EDE7DF', borderColor: '#EDE7DF' }}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">החיות שלך</CardTitle>
-              <CardDescription>לחץ על "פרטים" לפתיחת תיק החיה</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {animalsForTodayList.map(animal => (
-                  <div 
-                    key={animal.id} 
-                    className="flex items-center justify-between p-3 rounded-lg gap-3"
-                    style={{ 
-                      backgroundColor: (animal as any).hasTreatmentToday ? '#D3D3D3' : '#FFFFFF',
-                      opacity: (animal as any).hasTreatmentToday ? 0.7 : 1
-                    }}
-                  >
-                    <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
-                      <ImageWithFallback
-                        src={animal.image || ''}
-                        alt={animal.name}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-right font-medium">{animal.name}</div>
-                      <div className="text-sm text-muted-foreground text-right">{animalTypeToHebrew[animal.animalType]}</div>
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => onSelectAnimal(animal.animalType, animal.name)}
-                    >
-                      פרטים
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {animalsForTodayList.length === 0 && (
+        {animalsForTodayList.length === 0 && generalTreatments.length === 0 && (
           <Card style={{ backgroundColor: '#EDE7DF', borderColor: '#EDE7DF' }}>
             <CardContent className="text-center py-8">
               <p className="text-muted-foreground">אין חיות שהוקצו לך</p>

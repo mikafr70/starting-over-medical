@@ -443,7 +443,7 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                 {[
                   ['מין', 'sex'],
                   ['מיקום', 'location'],
-                  ['בטיפול', 'in_treatment'],
+                  ['מטפל', 'in_treatment'],
                   ['שבב נוסף', 'id2'],
                   ['משקל', 'weight'],
                   ['תאריך הגעה', 'arrival_date'],
