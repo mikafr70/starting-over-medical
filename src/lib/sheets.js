@@ -637,10 +637,10 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
     const values = rowsToAdd.map(rowData => {
       const date = rowData.date || new Date().toLocaleDateString();
       const day = rowData.day || '';
-      const morning = rowData.morning;
-      const noon = rowData.noon;
-      const evening = rowData.evening;
-      const generalTreatment = isGeneralCaregiver ? 'TRUE' : ''; // Set to TRUE if general caregiver selected
+      const morning = rowData.morning || '';
+      const noon = rowData.noon || '';
+      const evening = rowData.evening || '';
+      const generalTreatment = isGeneralCaregiver ? 'FALSE' : ''; // Set to FALSE if general caregiver selected, empty otherwise
       const treatment = rowData.treatment || '';
       const dosage = rowData.dosage || '';
       const bodyPart = rowData.bodyPart || rowData['body part'] || '';
@@ -666,13 +666,44 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
       resource: { values },
     });
 
+    // First, clear all validations for the new rows to prevent inheriting from previous rows
+    const clearValidationRequests = [];
+    for (let i = 0; i < rowsToAdd.length; i++) {
+      const startRow = 1 + i;
+      
+      // Clear validations for morning, noon, evening, and general treatment columns
+      for (let col = 2; col <= 5; col++) {
+        clearValidationRequests.push({
+          setDataValidation: {
+            range: {
+              sheetId,
+              startRowIndex: startRow,
+              endRowIndex: startRow + 1,
+              startColumnIndex: col,
+              endColumnIndex: col + 1
+            },
+            rule: null
+          }
+        });
+      }
+    }
+    
+    // Execute clear validations first
+    if (clearValidationRequests.length > 0) {
+      await sheetsApi.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: { requests: clearValidationRequests }
+      });
+    }
+
+    // Now add checkbox validations only where needed
     const validationRequests = [];
     for (let i = 0; i < rowsToAdd.length; i++) {
       const row = rowsToAdd[i];
       const startRow = 1 + i;
 
       if (row.morning === 'TRUE' || row.morning === 'FALSE') {
-        console.log('Adding morning checkbox validation at row:');
+        console.log('Adding morning checkbox validation at row:', startRow);
         validationRequests.push({
           setDataValidation: {
             range: {
@@ -689,24 +720,9 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
           }
         });
       }
-      else{
-        console.log('Morning checkbox value is not TRUE or FALSE:', row.morning);
-        validationRequests.push({
-          setDataValidation: {
-            range: {
-              sheetId,
-              startRowIndex: startRow,
-              endRowIndex: startRow + 1,  
-              startColumnIndex: 2,
-              endColumnIndex: 3
-            },
-            rule: null
-          }
-        });
-      }
 
       if (row.noon === 'TRUE' || row.noon === 'FALSE') {
-        console.log('Adding noon checkbox validation at row:');
+        console.log('Adding noon checkbox validation at row:', startRow);
         validationRequests.push({
           setDataValidation: {
             range: {
@@ -723,24 +739,9 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
           }
         });
       }
-      else{
-        console.log('Noon checkbox value is not TRUE or FALSE:', row.noon);
-        validationRequests.push({
-          setDataValidation: {
-            range: {
-              sheetId,
-              startRowIndex: startRow,
-              endRowIndex: startRow + 1,  
-              startColumnIndex: 3,
-              endColumnIndex: 4
-            },
-            rule: null
-          }
-        });
-      }
 
       if (row.evening === 'TRUE' || row.evening === 'FALSE') {
-        console.log('Adding evening checkbox validation at row:');
+        console.log('Adding evening checkbox validation at row:', startRow);
         validationRequests.push({
           setDataValidation: {
             range: {
@@ -754,21 +755,6 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
               condition: { type: 'BOOLEAN' },
               showCustomUi: row.evening === 'TRUE'
             }
-          }
-        });
-      }
-      else{
-        console.log('Evening checkbox value is not TRUE or FALSE:', row.evening);
-        validationRequests.push({
-          setDataValidation: {
-            range: {
-              sheetId,
-              startRowIndex: startRow,
-              endRowIndex: startRow + 1,  
-              startColumnIndex: 4,
-              endColumnIndex: 5
-            },
-            rule: null
           }
         });
       }
@@ -787,7 +773,7 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
             },
             rule: {
               condition: { type: 'BOOLEAN' },
-              showCustomUi: true // Start as checked
+              showCustomUi: false // Start as unchecked
             }
           }
         });
