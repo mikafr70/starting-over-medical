@@ -9,6 +9,7 @@ import { Toaster } from "./components/ui/sonner";
 import { MedicalRecords } from "./components/MedicalRecords";
 import { PersonalTreatments } from "./components/PersonalTreatments";
 import React from "react";
+import { useEffect } from "react";
 
 type Screen = "login" | "dashboard" | "schedule" | "profile" | "medicalRecords" | "addTreatment" | "addTreatmentFromSchedule" | "personalTreatments";
 
@@ -19,6 +20,13 @@ export default function App() {
   const [selectedAnimalType, setSelectedAnimalType] = useState<string>("");
   const [selectedAnimalName, setSelectedAnimalName] = useState<string>("");
   const [previousScreen, setPreviousScreen] = useState<Screen>("dashboard");
+  
+  const rtlStyle: React.CSSProperties = {
+    direction: 'rtl',
+    textAlign: 'right',
+    minHeight: '100vh',
+    padding: '20px'
+  };
 
   const handleLogin = (nameOrEmail: string) => {
     setUsername(nameOrEmail);
@@ -33,6 +41,7 @@ export default function App() {
 
   const handleNavigate = (screen: string) => {
     if (screen === "dashboard" || screen === "schedule" || screen === "medicalRecords" || screen === "personalTreatments") {
+      // Don't update previousScreen when navigating via navbar, keep it for back navigation
       setCurrentScreen(screen as Screen);
     }
   };
@@ -42,6 +51,9 @@ export default function App() {
     // - handleSelectAnimal(animalType, animalName) - from DailySchedule
     // - handleSelectAnimal(animalType, animalName) - from Dashboard
     
+    // Track previous screen before navigating to profile
+    console.log(`Navigating to profile from: ${currentScreen}`);
+    setPreviousScreen(currentScreen);
     setSelectedAnimalType(animalType);
     setSelectedAnimalName(animalName);
     setCurrentScreen("profile");
@@ -68,7 +80,8 @@ export default function App() {
   };
 
   const handleBackFromProfile = () => {
-    setCurrentScreen("dashboard");
+    console.log(`Going back to: ${previousScreen}`);
+    setCurrentScreen(previousScreen);
   };
 
   const handleBackFromAddTreatment = () => {
@@ -132,6 +145,7 @@ export default function App() {
       {currentScreen === "medicalRecords" && (
         <MedicalRecords
           onOpenProfile={(animalType: string, animalName: string) => {
+            setPreviousScreen("medicalRecords");
             setSelectedAnimalType(animalType);
             setSelectedAnimalName(animalName);
             setCurrentScreen("profile");

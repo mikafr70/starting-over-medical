@@ -435,9 +435,13 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="text-right text-[20px] font-bold">{editAnimal.name}</span>
-                <span className="text-right text-[18px] font-bold text-gray-600">{editAnimal.id}</span>
+                <input
+                  className="text-right text-[18px] font-bold text-gray-600 bg-gray-100 rounded px-2 py-1"
+                  value={editAnimal?.id ?? ''}
+                  onChange={e => setEditAnimal((a: any) => ({ ...a, id: e.target.value }))}
+                />
               </div>
               <div className="space-y-1 text-sm">
                 {[

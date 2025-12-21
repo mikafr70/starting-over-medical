@@ -7,6 +7,7 @@ import { Badge } from "./ui/badge";
 import { Calendar, Pill, AlertCircle, Plus, Loader2 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { AddAnimal } from "./AddAnimal";
+import { AnimalAction } from "./AnimalAction";
 import React from "react";
 
 
@@ -70,6 +71,7 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
   const [caregiverName, setCaregiverName] = useState<string>("");
   const [uncheckedTreatments] = useState<Animal[]>([]);
   const [addAnimalOpen, setAddAnimalOpen] = useState(false);
+  const [animalActionOpen, setAnimalActionOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const isFetchingRef = useRef(false);
   const lastEmailRef = useRef<string>("");
@@ -168,13 +170,13 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
           </Button>
           
           <Button
-            onClick={() => setAddAnimalOpen(true)}
+            onClick={() => setAnimalActionOpen(true)}
             className="px-8 py-6 rounded-2xl text-white transition-all hover:scale-105 hover:shadow-lg"
             style={{ 
               backgroundColor: '#6B9080',
             }}
           >
-            <span className="text-xl">הוסף חיה חדשה</span>
+            <span className="text-xl">פעולה חדשה</span>
           </Button>
         </div>
       </div>
@@ -184,6 +186,14 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
         onOpenChange={setAddAnimalOpen}
         onSuccess={() => {
           // Optionally refresh animals list
+        }}
+      />
+
+      <AnimalAction 
+        open={animalActionOpen} 
+        onOpenChange={setAnimalActionOpen}
+        onSuccess={() => {
+          // Optionally refresh or perform action
         }}
       />
     </div>

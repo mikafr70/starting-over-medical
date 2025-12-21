@@ -1,5 +1,5 @@
 /* app/globals.css */
 html, body {
-  margin: 0;
-  padding: 0;
+  direction: rtl !important;
+  text-align: right !important;
 }

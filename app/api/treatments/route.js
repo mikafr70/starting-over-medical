@@ -1,4 +1,4 @@
-import { updateAnimalInList,addGeneralTreatmentColumnWithValidations } from '@/src/lib/sheets'; // ...existing code...
+import { updateAnimalInList,addGeneralTreatmentColumnWithValidations, renameAnimalTreatmentSheet } from '@/src/lib/sheets'; // ...existing code...
 
 export async function PUT(request) {
   try {
@@ -20,6 +20,21 @@ export async function PUT(request) {
         headers: CORS_HEADERS
       });
     }
+    
+    // Check if ID needs to be updated in the treatment sheet filename
+    const newId = updatedAnimal['id'];
+    if (newId && newId.trim() !== '') {
+      // Extract old ID from animalName if present
+      const oldIdMatch = animalName.match(/\s+(\d+)$/);
+      const oldId = oldIdMatch ? oldIdMatch[1] : '';
+      
+      // Rename if: (1) ID changed, or (2) no old ID but we have a new one
+      if (oldId !== newId) {
+        console.log(`Updating treatment sheet filename - old ID: "${oldId}", new ID: "${newId}"`);
+        await renameAnimalTreatmentSheet(animalType, animalName, newId);
+      }
+    }
+    
     // Update the animal in the main animals sheet
     const success = await updateAnimalInList(animalType, updatedAnimal['name'], updatedAnimal);
     if (!success) {
@@ -100,7 +115,10 @@ export async function GET(request) {
 
       console.log('Animal found: ', targetAnimal.name || targetAnimal.displayName);
       // Get all treatments for this animal from its individual sheet
-      const allTreatments = await getAnimalTreatments(animalType, targetAnimal.name);
+      // Extract just the name part (before the ID number)
+      const animalNameOnly = (targetAnimal.name || '').split(' ')[0];
+      console.log('Using animal name for search:', animalNameOnly);
+      const allTreatments = await getAnimalTreatments(animalType, animalNameOnly);
 
       //console.log('All treatments fetched for animal:', allTreatments);
 

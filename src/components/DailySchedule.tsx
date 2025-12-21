@@ -3,8 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
+import { Textarea } from "./ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2, X } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { toast } from "sonner";
 
@@ -112,6 +113,12 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Daily events state
+  const [dailyEvents, setDailyEvents] = useState<string[]>([]);
+  const [newEvent, setNewEvent] = useState('');
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [savingEvent, setSavingEvent] = useState(false);
 
   const selectedDay = scheduleDays[selectedDayIndex];
 
@@ -251,6 +258,93 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
     fetchTreatments();
   }, []);
+
+  // Fetch daily events when selected day changes
+  useEffect(() => {
+    const fetchDailyEvents = async () => {
+      if (!selectedDay) return;
+      
+      try {
+        setLoadingEvents(true);
+        const response = await fetch(`/api/daily-events?date=${encodeURIComponent(selectedDay.date)}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setDailyEvents(data.events || []);
+        } else {
+          console.error('Failed to fetch daily events:', data.error);
+          toast.error('שגיאה בטעינת אירועים יומיים');
+        }
+      } catch (err) {
+        console.error('Error fetching daily events:', err);
+        toast.error('שגיאה בחיבור לשרת');
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+
+    fetchDailyEvents();
+  }, [selectedDay?.date]);
+
+  // Save daily event
+  const handleSaveEvent = async () => {
+    if (!newEvent.trim()) return;
+    
+    try {
+      setSavingEvent(true);
+      const response = await fetch('/api/daily-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: selectedDay.date,
+          event: newEvent.trim()
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setDailyEvents([...dailyEvents, newEvent.trim()]);
+        setNewEvent('');
+        toast.success('אירוע נשמר בהצלחה');
+      } else {
+        console.error('Failed to save event:', data.error);
+        toast.error('שגיאה בשמירת האירוע');
+      }
+    } catch (err) {
+      console.error('Error saving event:', err);
+      toast.error('שגיאה בחיבור לשרת');
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
+  // Delete daily event
+  const handleDeleteEvent = async (eventToDelete: string) => {
+    try {
+      const response = await fetch('/api/daily-events', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: selectedDay.date,
+          event: eventToDelete
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setDailyEvents(dailyEvents.filter(e => e !== eventToDelete));
+        toast.success('אירוע נמחק בהצלחה');
+      } else {
+        console.error('Failed to delete event:', data.error);
+        toast.error('שגיאה במחיקת האירוע');
+      }
+    } catch (err) {
+      console.error('Error deleting event:', err);
+      toast.error('שגיאה בחיבור לשרת');
+    }
+  };
 
   // Helper function to convert string to number hash
   const hashCode = (str: string): number => {
@@ -548,94 +642,163 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
         {/* Full Width Schedule */}
         {!loading && (
-          <div className="space-y-6">
-            <Card className="mb-6">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={prevDay}
-                    disabled={selectedDayIndex === 0}
-                  >
-                    <ChevronRight className="w-5 h-5" />
-                  </Button>
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+            {/* Treatments Schedule - 8 columns */}
+            <div className="xl:col-span-8 space-y-6">
+              <Card className="mb-6">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={prevDay}
+                      disabled={selectedDayIndex === 0}
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </Button>
 
-                  <div className="text-center">
-                    <CardTitle className="flex items-center justify-center gap-2">
-                      <CalendarIcon className="w-5 h-5" />
-                      {selectedDay.day}, {selectedDay.date}
-                    </CardTitle>
-                    {selectedDay.isToday && (
-                      <Badge className="mt-2" style={{ backgroundColor: '#CFE4D3', color: '#333333' }}>
-                        היום
-                      </Badge>
+                    <div className="text-center">
+                      <CardTitle className="flex items-center justify-center gap-2">
+                        <CalendarIcon className="w-5 h-5" />
+                        {selectedDay.day}, {selectedDay.date}
+                      </CardTitle>
+                      {selectedDay.isToday && (
+                        <Badge className="mt-2" style={{ backgroundColor: '#CFE4D3', color: '#333333' }}>
+                          היום
+                        </Badge>
+                      )}
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={nextDay}
+                      disabled={selectedDayIndex === scheduleDays.length - 1}
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </Button>
+                  </div>
+                </CardHeader>
+              </Card>
+
+              {treatments.filter(t => t.timeSlot !== 'general').length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center text-muted-foreground">
+                    אין טיפולים מתוכננים ליום זה
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-6">
+                  {timeSections.map((section) => {
+                    const sectionTreatments = groupedTreatments[section.id];
+                    const Icon = section.icon;
+
+                    return (
+                      <div key={section.id} className="rounded-xl overflow-hidden border" style={{ borderColor: '#E7E7E7' }}>
+                        <div 
+                          className="p-4 border-b" 
+                          style={{ 
+                            backgroundColor: section.headerBgColor,
+                            borderColor: '#E7E7E7'
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Icon className="w-6 h-6" style={{ color: '#A67C52' }} />
+                            <div>
+                              <h3 className="text-right">{section.title}</h3>
+                            </div>
+                            <Badge variant="outline" className="mr-auto">
+                              {sectionTreatments?.length || 0} טיפולים
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <div 
+                          className="p-4"
+                          style={{ backgroundColor: section.bgColor }}
+                        >
+                          {!sectionTreatments || sectionTreatments.length === 0 ? (
+                            <div className="text-center py-8 text-muted-foreground">
+                              אין טיפולים מתוכננים ב{section.title.toLowerCase()}
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {sectionTreatments.map(renderTreatment)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Daily Events Panel - 4 columns */}
+            <div className="xl:col-span-4">
+              <Card className="xl:sticky xl:top-6">
+                <CardHeader>
+                  <CardTitle className="text-right">אירועים יומיים</CardTitle>
+                  <CardDescription className="text-right">רשימת אירועים והערות ליום</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Events List */}
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {loadingEvents ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      </div>
+                    ) : dailyEvents.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8 text-sm">אין אירועים ליום זה</p>
+                    ) : (
+                      dailyEvents.map((event, index) => (
+                        <div 
+                          key={index} 
+                          className="group p-3 bg-muted rounded-lg text-right text-sm border flex items-start justify-between gap-2 hover:bg-muted/80 transition-colors"
+                          style={{ borderColor: '#E7E7E7' }}
+                        >
+                          <span className="flex-1">{event}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                            onClick={() => handleDeleteEvent(event)}
+                          >
+                            <X className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))
                     )}
                   </div>
 
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={nextDay}
-                    disabled={selectedDayIndex === scheduleDays.length - 1}
-                  >
-                    <ChevronLeft className="w-5 h-5" />
-                  </Button>
-                </div>
-              </CardHeader>
-            </Card>
-
-            {treatments.filter(t => t.timeSlot !== 'general').length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  אין טיפולים מתוכננים ליום זה
+                  {/* Event Input */}
+                  <div className="space-y-2 pt-4 border-t">
+                    <Textarea
+                      placeholder="הזן אירוע או הערה..."
+                      value={newEvent}
+                      onChange={(e) => setNewEvent(e.target.value)}
+                      className="text-right resize-none"
+                      rows={3}
+                    />
+                    <Button
+                      onClick={handleSaveEvent}
+                      disabled={!newEvent.trim() || savingEvent}
+                      className="w-full"
+                      style={{ backgroundColor: '#A67C52' }}
+                    >
+                      {savingEvent ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin ml-2" />
+                          שומר...
+                        </>
+                      ) : (
+                        'שמור אירוע'
+                      )}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
-            ) : (
-              <div className="space-y-6">
-                {timeSections.map((section) => {
-                  const sectionTreatments = groupedTreatments[section.id];
-                  const Icon = section.icon;
-
-                  return (
-                    <div key={section.id} className="rounded-xl overflow-hidden border" style={{ borderColor: '#E7E7E7' }}>
-                      <div 
-                        className="p-4 border-b" 
-                        style={{ 
-                          backgroundColor: section.headerBgColor,
-                          borderColor: '#E7E7E7'
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <Icon className="w-6 h-6" style={{ color: '#A67C52' }} />
-                          <div>
-                            <h3 className="text-right">{section.title}</h3>
-                          </div>
-                          <Badge variant="outline" className="mr-auto">
-                            {sectionTreatments?.length || 0} טיפולים
-                          </Badge>
-                        </div>
-                      </div>
-
-                      <div 
-                        className="p-4"
-                        style={{ backgroundColor: section.bgColor }}
-                      >
-                        {!sectionTreatments || sectionTreatments.length === 0 ? (
-                          <div className="text-center py-8 text-muted-foreground">
-                            אין טיפולים מתוכננים ב{section.title.toLowerCase()}
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            {sectionTreatments.map(renderTreatment)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            </div>
           </div>
         )}
         

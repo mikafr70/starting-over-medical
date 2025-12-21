@@ -4,12 +4,17 @@ import "./globals.css"; // create this file if it doesn't exist
 import '../src/index.css';   // adjust this to match your real CSS file(s)
 
 
-
 import React from "react";
 
 export const metadata: Metadata = {
   title: "Starting Over Medical",
   description: "Rehabilitation Farm App",
+  icons: {
+    icon: [
+      { url: '/logo.png', type: 'image/png' },
+    ],
+    apple: '/logo.png',
+  },
 };
 
 export default function RootLayout({
@@ -18,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="he" dir="rtl">
       <body>{children}</body>
     </html>
   );

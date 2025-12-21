@@ -3,9 +3,12 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
-import { Loader2, Pill, UserMinus, Check, X } from "lucide-react";
+import { Textarea } from "./ui/textarea";
+import { Loader2, Pill, UserMinus, UserPlus, Check, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Label } from "./ui/label";
+import { Input } from "./ui/input";
 import { toast } from "sonner";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import React from "react";
@@ -86,80 +89,191 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
   const [generalTreatments, setGeneralTreatments] = useState<GeneralTreatment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [confirmRemoveDialogOpen, setConfirmRemoveDialogOpen] = useState(false);
   const [selectedAnimalToRemove, setSelectedAnimalToRemove] = useState<string>("");
+  const [selectedAnimalType, setSelectedAnimalType] = useState<string>("");
+  const [selectedAnimalToAdd, setSelectedAnimalToAdd] = useState<string>("");
+  const [animalSearchQuery, setAnimalSearchQuery] = useState<string>("");
+  const [availableAnimals, setAvailableAnimals] = useState<Animal[]>([]);
+  const [isLoadingAnimals, setIsLoadingAnimals] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  
+  // Caregiver notes state
+  const [caregiverNotes, setCaregiverNotes] = useState<string[]>([]);
+  const [newNote, setNewNote] = useState('');
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
   const [completingTreatment, setCompletingTreatment] = useState<string | null>(null);
   const isFetchingRef = useRef(false);
   const lastEmailRef = useRef<string>("");
 
-  useEffect(() => {
-    async function fetchCaregiverAndAnimals() {
-      console.log('🔵 PersonalTreatments useEffect called, email:', email);
-      console.log('🔵 isFetchingRef.current:', isFetchingRef.current);
-      console.log('🔵 lastEmailRef.current:', lastEmailRef.current);
-      
-      if (!email) {
-        console.log('⚠️ No email, skipping fetch');
-        setIsLoading(false);
-        return;
-      }
+  const fetchCaregiverAndAnimals = async () => {
+    console.log('🔵 PersonalTreatments fetch called, email:', email);
+    console.log('🔵 isFetchingRef.current:', isFetchingRef.current);
+    console.log('🔵 lastEmailRef.current:', lastEmailRef.current);
+    
+    if (!email) {
+      console.log('⚠️ No email, skipping fetch');
+      setIsLoading(false);
+      return;
+    }
 
-      // Prevent duplicate fetches
-      if (isFetchingRef.current) {
-        console.log('⚠️ Already fetching, skipping');
-        return;
-      }
-      
-      // If we already fetched for this email, skip the fetch
-      if (lastEmailRef.current === email && animalsForTodayList.length > 0) {
-        console.log('⚠️ Already fetched for this email, skipping');
-        setIsLoading(false);
-        return;
-      }
+    // Prevent duplicate fetches
+    if (isFetchingRef.current) {
+      console.log('⚠️ Already fetching, skipping');
+      return;
+    }
 
-      console.log('✅ Starting fetch for email:', email);
-      isFetchingRef.current = true;
-      lastEmailRef.current = email;
-      setIsLoading(true);
+    console.log('✅ Starting fetch for email:', email);
+    isFetchingRef.current = true;
+    lastEmailRef.current = email;
+    setIsLoading(true);
 
-      try {
-        // 1. Get caregiver name from backend
-        const caregiverNameRes = await fetch(`/api/caregiver?email=${encodeURIComponent(email)}`);
-        const nameObj = await caregiverNameRes.json();
-        let nameRaw = nameObj?.caregiverName ?? nameObj ?? '';
-        if (Array.isArray(nameRaw)) nameRaw = nameRaw[0] || '';
-        const name = typeof nameRaw === 'string' ? nameRaw : '';
-        setCaregiverName(name || "");
+    try {
+      // 1. Get caregiver name from backend
+      const caregiverNameRes = await fetch(`/api/caregiver?email=${encodeURIComponent(email)}`);
+      const nameObj = await caregiverNameRes.json();
+      let nameRaw = nameObj?.caregiverName ?? nameObj ?? '';
+      if (Array.isArray(nameRaw)) nameRaw = nameRaw[0] || '';
+      const name = typeof nameRaw === 'string' ? nameRaw : '';
+      setCaregiverName(name || "");
 
-        if (!name) {
-          setAnimalsForTodayList([]);
-          isFetchingRef.current = false;
-          return;
-        }
-
-        // 2. Fetch both animals and general treatments in ONE API call
-        console.log('🔵 Fetching animals AND general treatments in single call');
-        const response = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}&includeGeneralTreatments=true`);
-        const data = await response.json();
-        
-        const list = Array.isArray(data.animals) ? data.animals : [];
-        const generalList = Array.isArray(data.generalTreatments) ? data.generalTreatments : [];
-        
-        setAnimalsForTodayList(list);
-        setGeneralTreatments(generalList);
-        
-        console.log("%%%%%%%%%%%% Personal Treatments - Animals fetched:", list);
-        console.log("%%%%%%%%%%%% Personal Treatments - General treatments fetched:", generalList);
-      } catch (err) {
-        console.error('Error in fetchCaregiverAndAnimals:', err);
-      } finally {
-        setIsLoading(false);
+      if (!name) {
+        setAnimalsForTodayList([]);
         isFetchingRef.current = false;
+        return;
       }
+
+      // 2. Fetch both animals and general treatments in ONE API call
+      console.log('🔵 Fetching animals AND general treatments in single call');
+      const response = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}&includeGeneralTreatments=true`);
+      const data = await response.json();
+      
+      const list = Array.isArray(data.animals) ? data.animals : [];
+      const generalList = Array.isArray(data.generalTreatments) ? data.generalTreatments : [];
+      
+      setAnimalsForTodayList(list);
+      setGeneralTreatments(generalList);
+      
+      console.log("%%%%%%%%%%%% Personal Treatments - Animals fetched:", list);
+      console.log("%%%%%%%%%%%% Personal Treatments - General treatments fetched:", generalList);
+    } catch (err) {
+      console.error('Error in fetchCaregiverAndAnimals:', err);
+    } finally {
+      setIsLoading(false);
+      isFetchingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    // If we already fetched for this email, skip the fetch
+    if (lastEmailRef.current === email && animalsForTodayList.length > 0) {
+      console.log('⚠️ Already fetched for this email, skipping');
+      setIsLoading(false);
+      return;
     }
     fetchCaregiverAndAnimals();
   }, [email]);
+
+  // Fetch caregiver notes for today
+  useEffect(() => {
+    const fetchNotes = async () => {
+      if (!caregiverName) return;
+      
+      const today = new Date();
+      const date = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+      
+      try {
+        setLoadingNotes(true);
+        const response = await fetch(`/api/caregiver-notes?caregiverName=${encodeURIComponent(caregiverName)}&date=${encodeURIComponent(date)}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setCaregiverNotes(data.notes || []);
+        } else {
+          console.error('Failed to fetch caregiver notes:', data.error);
+        }
+      } catch (err) {
+        console.error('Error fetching caregiver notes:', err);
+      } finally {
+        setLoadingNotes(false);
+      }
+    };
+
+    fetchNotes();
+  }, [caregiverName]);
+
+  // Save caregiver note
+  const handleSaveNote = async () => {
+    if (!newNote.trim() || !caregiverName) return;
+    
+    const today = new Date();
+    const date = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+    
+    try {
+      setSavingNote(true);
+      const response = await fetch('/api/caregiver-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caregiverName,
+          date,
+          note: newNote.trim()
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setCaregiverNotes([...caregiverNotes, newNote.trim()]);
+        setNewNote('');
+        toast.success('הערה נשמרה בהצלחה');
+      } else {
+        console.error('Failed to save note:', data.error);
+        toast.error('שגיאה בשמירת ההערה');
+      }
+    } catch (err) {
+      console.error('Error saving note:', err);
+      toast.error('שגיאה בחיבור לשרת');
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  // Delete caregiver note
+  const handleDeleteNote = async (noteToDelete: string) => {
+    if (!caregiverName) return;
+    
+    const today = new Date();
+    const date = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+    
+    try {
+      const response = await fetch('/api/caregiver-notes', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caregiverName,
+          date,
+          note: noteToDelete
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setCaregiverNotes(caregiverNotes.filter(n => n !== noteToDelete));
+        toast.success('הערה נמחקה בהצלחה');
+      } else {
+        console.error('Failed to delete note:', data.error);
+        toast.error('שגיאה במחיקת ההערה');
+      }
+    } catch (err) {
+      console.error('Error deleting note:', err);
+      toast.error('שגיאה בחיבור לשרת');
+    }
+  };
 
   const handleRemoveCaregiver = async (removeForEveryone: boolean) => {
     if (!selectedAnimalToRemove) {
@@ -214,6 +328,76 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
     }
     setRemoveDialogOpen(false);
     setConfirmRemoveDialogOpen(true);
+  };
+
+  const handleAnimalTypeChange = async (animalType: string) => {
+    setSelectedAnimalType(animalType);
+    setSelectedAnimalToAdd("");
+    setAnimalSearchQuery("");
+    setIsLoadingAnimals(true);
+
+    try {
+      const response = await fetch(`/api/treatments?animalType=${animalType}`);
+      if (!response.ok) throw new Error('Failed to fetch animals');
+      
+      const data = await response.json();
+      // API returns {animals, protocols} object where animals have displayName instead of name
+      const rawAnimals = Array.isArray(data) ? data : (data.animals || []);
+      // Map displayName to name for component compatibility
+      const animals = rawAnimals.map(a => ({
+        ...a,
+        id: a.id_number || a.id,
+        name: a.displayName || a.name
+      }));
+      setAvailableAnimals(animals);
+    } catch (error) {
+      console.error('Error fetching animals:', error);
+      toast.error("שגיאה בטעינת רשימת החיות");
+      setAvailableAnimals([]);
+    } finally {
+      setIsLoadingAnimals(false);
+    }
+  };
+
+  const handleAddAnimal = async () => {
+    if (!selectedAnimalToAdd || !selectedAnimalType) {
+      toast.error("אנא בחר סוג חיה ושם חיה");
+      return;
+    }
+
+    setIsAdding(true);
+    try {
+      const response = await fetch('/api/caregiver/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          animalType: selectedAnimalType,
+          animalName: selectedAnimalToAdd,
+          caregiverName: caregiverName,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to add animal');
+      }
+
+      toast.success("החיה נוספה לרשימת הטיפולים שלך");
+      setAddDialogOpen(false);
+      setSelectedAnimalType("");
+      setSelectedAnimalToAdd("");
+      setAnimalSearchQuery("");
+      
+      // Reset fetching flag and refresh the list
+      isFetchingRef.current = false;
+      await fetchCaregiverAndAnimals();
+    } catch (error) {
+      console.error('Error adding animal:', error);
+      toast.error("שגיאה בהוספת החיה");
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   const handleCompleteGeneralTreatment = async (animalTypeKey: string, animalName: string, date: string, index: number) => {
@@ -308,7 +492,15 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
           <p className="text-muted-foreground text-right">
             יש לך {animalsForTodayList.length} חיות שהוקצו לך
           </p>
-          <div className="mt-4">
+          <div className="mt-4 flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setAddDialogOpen(true)}
+              className="gap-2"
+            >
+              <UserPlus className="w-4 h-4" />
+              הוסף חיה לטיפול
+            </Button>
             <Button
               variant="outline"
               onClick={() => setRemoveDialogOpen(true)}
@@ -320,6 +512,11 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
             </Button>
           </div>
         </div>
+
+        {/* Grid Layout: Treatments + Notes Panel */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          {/* Main Content - 8 columns */}
+          <div className="xl:col-span-8 space-y-6">
 
         {/* Personal Treatments Section */}
         {(animalsForTodayList.filter(a => a.isPersonalIncomplete).length > 0 || 
@@ -538,6 +735,74 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
             </CardContent>
           </Card>
         )}
+          </div>
+
+          {/* Caregiver Notes Panel - 4 columns */}
+          <div className="xl:col-span-4">
+            <Card className="xl:sticky xl:top-6">
+              <CardHeader>
+                <CardTitle className="text-right">הערות אישיות</CardTitle>
+                <CardDescription className="text-right">הערות והודעות ליום</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Notes List */}
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {loadingNotes ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    </div>
+                  ) : caregiverNotes.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8 text-sm">אין הערות ליום</p>
+                  ) : (
+                    caregiverNotes.map((note, index) => (
+                      <div 
+                        key={index} 
+                        className="group p-3 bg-muted rounded-lg text-right text-sm border flex items-start justify-between gap-2 hover:bg-muted/80 transition-colors"
+                        style={{ borderColor: '#E7E7E7' }}
+                      >
+                        <span className="flex-1">{note}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                          onClick={() => handleDeleteNote(note)}
+                        >
+                          <X className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Note Input */}
+                <div className="space-y-2 pt-4 border-t">
+                  <Textarea
+                    placeholder="הזן הערה..."
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                    className="text-right resize-none"
+                    rows={3}
+                  />
+                  <Button
+                    onClick={handleSaveNote}
+                    disabled={!newNote.trim() || savingNote}
+                    className="w-full"
+                    style={{ backgroundColor: '#A67C52' }}
+                  >
+                    {savingNote ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin ml-2" />
+                        שומר...
+                      </>
+                    ) : (
+                      'שמור הערה'
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
 
       {/* Remove Caregiver Dialog */}
@@ -639,6 +904,106 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
               disabled={isRemoving}
             >
               חזור
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Animal Dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-right">הוסף חיה לטיפול</DialogTitle>
+            <DialogDescription className="text-right">
+              בחר סוג חיה וחיה להוספה לרשימת הטיפולים שלך
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-right block">סוג החיה</Label>
+              <Select value={selectedAnimalType} onValueChange={handleAnimalTypeChange}>
+                <SelectTrigger className="text-right" dir="rtl">
+                  <SelectValue placeholder="בחר סוג חיה" />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="donkey">חמור 🫏</SelectItem>
+                  <SelectItem value="horse">סוס 🐴</SelectItem>
+                  <SelectItem value="cow">פרה 🐄</SelectItem>
+                  <SelectItem value="dog">כלב 🐕</SelectItem>
+                  <SelectItem value="cat">חתול 🐈</SelectItem>
+                  <SelectItem value="goat">עז 🐐</SelectItem>
+                  <SelectItem value="sheep">כבשה 🐑</SelectItem>
+                  <SelectItem value="rabbit">ארנב 🐰</SelectItem>
+                  <SelectItem value="chicken">עופות 🐔</SelectItem>
+                  <SelectItem value="pig">חזיר 🐖</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {selectedAnimalType && (
+              <div className="space-y-2">
+                <Label className="text-right block">חפש חיה</Label>
+                <Input
+                  placeholder="חפש לפי שם..."
+                  value={animalSearchQuery}
+                  onChange={(e) => setAnimalSearchQuery(e.target.value)}
+                  className="text-right"
+                  dir="rtl"
+                />
+                
+                {isLoadingAnimals ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  </div>
+                ) : (
+                  <Select value={selectedAnimalToAdd} onValueChange={setSelectedAnimalToAdd}>
+                    <SelectTrigger className="text-right" dir="rtl">
+                      <SelectValue placeholder="בחר חיה" />
+                    </SelectTrigger>
+                    <SelectContent align="end" side="bottom" position="popper" sideOffset={5} avoidCollisions={false}>
+                      {(availableAnimals || [])
+                        .filter(animal => 
+                          !animalSearchQuery || 
+                          (animal.name && animal.name.toLowerCase().includes(animalSearchQuery.toLowerCase()))
+                        )
+                        .map((animal) => (
+                          <SelectItem key={animal.id || animal.name} value={animal.name} className="text-right">
+                            {animal.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setAddDialogOpen(false);
+                setSelectedAnimalType("");
+                setSelectedAnimalToAdd("");
+                setAnimalSearchQuery("");
+              }}
+              disabled={isAdding}
+            >
+              ביטול
+            </Button>
+            <Button 
+              onClick={handleAddAnimal}
+              disabled={isAdding || !selectedAnimalToAdd || !selectedAnimalType}
+            >
+              {isAdding ? (
+                <>
+                  <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                  מוסיף...
+                </>
+              ) : (
+                'הוסף'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

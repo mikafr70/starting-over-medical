@@ -24,9 +24,6 @@ const FIELD_TO_HEADER = {
   location: 'מתחם',
   special_trimming: 'טילוף מיוחד',
   notes: 'התנהגותי/ הערות',
-  drugs: 'טשטוש',
-  castration: 'ת.סירוס',
-  deworming: 'תאריך תילוע',
   source: 'מקור',
   status: 'סטטוס',
   friends: 'חברויות',
@@ -317,19 +314,53 @@ async function findSpreadsheetInFolder(animalType, animalName) {
   const folderId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId;
 
   try {
-    const response = await drive.files.list({
-      q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and name contains '${animalName}'`,
-      fields: 'files(id, name)',
-      spaces: 'drive'
+    // Extract just the name part from animalName (e.g., "קשיו" from "קשיו 939000007563363")
+    const nameOnly = animalName.split(' ')[0];
+    
+    //console.log(`Searching for animal: "${animalName}", extracted name: "${nameOnly}"`);
+    
+    // Fetch all files with pagination
+    let allFiles = [];
+    let pageToken = null;
+    
+    do {
+      const response = await drive.files.list({
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+        fields: 'nextPageToken, files(id, name)',
+        spaces: 'drive',
+        pageSize: 1000, // Max allowed by API
+        pageToken: pageToken
+      });
+      
+      allFiles = allFiles.concat(response.data.files || []);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+    
+    console.log(`Found ${allFiles.length} total files in folder`);
+    
+    // Filter to find exact match: filename format is "עותק של [name] [ID]"
+    const exactMatch = allFiles.find(file => {
+      const nameWithoutExtension = file.name.replace(/\..*$/, ''); // Remove extension
+      // Remove "עותק של " prefix if present
+      const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
+      // Extract the name part (first word after removing prefix)
+      const fileNameOnly = nameWithoutPrefix.split(' ')[0];
+      
+      // Match if the name part matches exactly
+      const isMatch = fileNameOnly === nameOnly;
+      if (isMatch) {
+        console.log(`  ✓ MATCH FOUND: "${file.name}"`);
+      }
+      return isMatch;
     });
-
-    const files = response.data.files;
-    if (files.length === 0) {
+    
+    if (!exactMatch) {
       console.log(`No treatment sheet found for animal ${animalName}`);
       return null;
     }
 
-    return files[0].id;
+    console.log(`Found match: ${exactMatch.name}`);
+    return exactMatch.id;
   } catch (error) {
     console.error('Error searching Drive folder:', error);
     return null;
@@ -344,19 +375,52 @@ async function findSpreadsheetInFolder(animalType, animalName) {
 export async function findSheetIdByName(folderId, animalName){
   const drive = getDriveClient();
   try {
-    const response = await drive.files.list({
-      q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and name contains '${animalName}'`,
-      fields: 'files(id, name)',
-      spaces: 'drive'
+    // Extract just the name part from animalName (e.g., "קשיו" from "קשיו 939000007563363")
+    const nameOnly = animalName.split(' ')[0];
+    
+    console.log(`[findSheetIdByName] Searching for: "${animalName}", extracted: "${nameOnly}"`);
+    
+    // Fetch all files with pagination
+    let allFiles = [];
+    let pageToken = null;
+    
+    do {
+      const response = await drive.files.list({
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
+        fields: 'nextPageToken, files(id, name)',
+        spaces: 'drive',
+        pageSize: 1000, // Max allowed by API
+        pageToken: pageToken
+      });
+      
+      allFiles = allFiles.concat(response.data.files || []);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+    
+    console.log(`[findSheetIdByName] Found ${allFiles.length} total files in folder`);
+    
+    // Filter to find exact match: filename format is "עותק של [name] [ID]"
+    const exactMatch = allFiles.find(file => {
+      const nameWithoutExtension = file.name.replace(/\..*$/, ''); // Remove extension
+      // Remove "עותק של " prefix if present
+      const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
+      // Extract the name part (first word after removing prefix)
+      const fileNameOnly = nameWithoutPrefix.split(' ')[0];
+      
+      // Match if the name part matches exactly
+      const isMatch = fileNameOnly === nameOnly;
+      if (isMatch) {
+        console.log(`  [findSheetIdByName] ✓ MATCH FOUND: "${file.name}"`);
+      }
+      return isMatch;
     });
-
-    const files = response.data.files;
-    if (files.length === 0) {
+    
+    if (!exactMatch) {
       console.log(`No treatment sheet found for animal ${animalName}`);
       return null;
     }
 
-    return files[0].id;
+    return exactMatch.id;
   } catch (error) {
     console.error('Error searching Drive folder:', error);
     return null;
@@ -936,6 +1000,460 @@ export async function removeCaregiverFromAnimal(animalType, animalName, caregive
 }
 
 /*--------------------------------------------------
+  Add a caregiver to an animal's treatment list
+---------------------------------------------------*/
+export async function addCaregiverToAnimal(animalType, animalName, caregiverName) {
+  try {
+    console.log(`>> addCaregiverToAnimal for animal: ${animalName} of type: ${animalType}, caregiver: ${caregiverName}`);
+    await ensureConfigLoaded();
+    
+    const animalTypeKey = await getAnimalTypeKey(animalType);
+    const sheetId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].sheetId;
+    
+    if (!sheetId) {
+      throw new Error(`No sheet found for animal type: ${animalType}`);
+    }
+    
+    const doc = await getDoc(sheetId);
+    const sheet = doc.sheetsByIndex[0];
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    const rows = await sheet.getRows();
+    
+    const nameHeaderIndex = headers.findIndex(h => h && h.trim() === 'שם');
+    const caregiverHeaderIndex = headers.findIndex(h => h && h.trim() === 'מטפל');
+    
+    if (nameHeaderIndex === -1 || caregiverHeaderIndex === -1) {
+      throw new Error('Could not find required headers in sheet');
+    }
+    
+    // Find the animal row
+    const animalRow = rows.find(row => row._rawData[nameHeaderIndex] === animalName);
+    
+    if (!animalRow) {
+      throw new Error(`Animal ${animalName} not found in ${animalType} sheet`);
+    }
+    
+    // Get current caregivers
+    const currentCaregivers = animalRow._rawData[caregiverHeaderIndex] || '';
+    const caregiversArray = currentCaregivers.split(',').map(c => c.trim()).filter(c => c);
+    
+    // Check if caregiver already exists
+    if (caregiversArray.includes(caregiverName)) {
+      console.log(`Caregiver ${caregiverName} already assigned to ${animalName}`);
+      return { success: true, message: 'Caregiver already assigned' };
+    }
+    
+    // Add the new caregiver
+    caregiversArray.push(caregiverName);
+    animalRow._rawData[caregiverHeaderIndex] = caregiversArray.join(', ');
+    
+    await animalRow.save();
+    console.log(`Caregiver ${caregiverName} added to animal ${animalName} successfully.`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in addCaregiverToAnimal:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save adoption data to tracking sheet
+  Headers: שם	מין	תאריך	סוג חיה	פעולה	שבב	מתחם במקלט	שם מאמץ	מספר טלפון	מיקום
+  Also removes the animal from the main list
+---------------------------------------------------*/
+export async function saveAdoptionData(adoptionData) {
+  try {
+    console.log(`>> saveAdoptionData:`, adoptionData);
+    await ensureConfigLoaded();
+    
+    // Get tracking sheet ID from configuration
+    
+    const trackingSheetId = process.env.TRACKING_SHEET_ID_2026;
+
+    if (!trackingSheetId) {
+      throw new Error('TRACKING_SHEET_ID_2026 not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(trackingSheetId);
+    
+    // Find the "אימוצים" tab
+    const adoptionsSheet = doc.sheetsByTitle['אימוצים'];
+    if (!adoptionsSheet) {
+      throw new Error('Sheet "אימוצים" not found in tracking document');
+    }
+    
+    await adoptionsSheet.loadHeaderRow();
+    
+    // Add a new row with the adoption data to "אימוצים" tab
+    // Headers: שם	מין	תאריך	סוג חיה	פעולה	שבב	מתחם במקלט	שם מאמץ	מספר טלפון	מיקום
+    await adoptionsSheet.addRow({
+      'שם': adoptionData.animalName || '',
+      'מין': adoptionData.gender || '',
+      'תאריך': adoptionData.date || '',
+      'סוג חיה': adoptionData.animalType || '',
+      'פעולה': 'אימוץ',
+      'שבב': adoptionData.chipId || '',
+      'מתחם במקלט': adoptionData.shelterLocation || '',
+      'שם מאמץ': adoptionData.adopter_name || '',
+      'מספר טלפון': adoptionData.phoneNumber || '',
+      'מיקום': adoptionData.location || ''
+    });
+    
+    console.log(`Adoption data saved to אימוצים tab for ${adoptionData.animalName}`);
+    
+    // Also add to "מעקב כללי" tab
+    const generalTrackingSheet = doc.sheetsByTitle['מעקב כללי'];
+    if (!generalTrackingSheet) {
+      console.warn('Sheet "מעקב כללי" not found in tracking document - skipping general tracking');
+    } else {
+      await generalTrackingSheet.loadHeaderRow();
+      
+      // Add a new row with the common fields to "מעקב כללי" tab
+      // Headers: שם	מין	תאריך	סוג חיה	פעולה	שבב	מתחם במקלט
+      await generalTrackingSheet.addRow({
+        'שם': adoptionData.animalName || '',
+        'מין': adoptionData.gender || '',
+        'תאריך': adoptionData.date || '',
+        'סוג חיה': adoptionData.animalType || '',
+        'פעולה': 'אימוץ',
+        'שבב': adoptionData.chipId || '',
+        'מתחם במקלט': adoptionData.shelterLocation || ''
+      });
+      
+      console.log(`Adoption data saved to מעקב כללי tab for ${adoptionData.animalName}`);
+    }
+    
+    // Remove the animal from the main list
+    await removeAnimalFromList(adoptionData.animalType, adoptionData.animalName);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveAdoptionData:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save euthanasia data to tracking sheet
+  Headers: שם	מין	תאריך	סוג חיה	פעולה	שבב	מתחם במקלט	סיבה
+  Also removes the animal from the main list
+---------------------------------------------------*/
+export async function saveEuthanasiaData(euthanasiaData) {
+  try {
+    console.log(`>> saveEuthanasiaData:`, euthanasiaData);
+    await ensureConfigLoaded();
+    
+    const trackingSheetId = process.env.TRACKING_SHEET_ID_2026;
+    if (!trackingSheetId) {
+      throw new Error('TRACKING_SHEET_ID_2026 not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(trackingSheetId);
+    
+    // Find the "המתות חסד" tab
+    const euthanasiaSheet = doc.sheetsByTitle['המתות חסד'];
+    if (!euthanasiaSheet) {
+      throw new Error('Sheet "המתות חסד" not found in tracking document');
+    }
+    
+    await euthanasiaSheet.loadHeaderRow();
+    
+    // Add to "המתות חסד" tab
+    await euthanasiaSheet.addRow({
+      'שם': euthanasiaData.animalName || '',
+      'מין': euthanasiaData.gender || '',
+      'תאריך': euthanasiaData.date || '',
+      'סוג חיה': euthanasiaData.animalType || '',
+      'פעולה': 'המתת חסד',
+      'שבב': euthanasiaData.chipId || '',
+      'מתחם במקלט': euthanasiaData.shelterLocation || '',
+      'סיבה': euthanasiaData.reason || ''
+    });
+    
+    console.log(`Euthanasia data saved to המתות חסד tab for ${euthanasiaData.animalName}`);
+    
+    // Also add to "מעקב כללי" tab
+    const generalTrackingSheet = doc.sheetsByTitle['מעקב כללי'];
+    if (generalTrackingSheet) {
+      await generalTrackingSheet.loadHeaderRow();
+      await generalTrackingSheet.addRow({
+        'שם': euthanasiaData.animalName || '',
+        'מין': euthanasiaData.gender || '',
+        'תאריך': euthanasiaData.date || '',
+        'סוג חיה': euthanasiaData.animalType || '',
+        'פעולה': 'המתת חסד',
+        'שבב': euthanasiaData.chipId || '',
+        'מתחם במקלט': euthanasiaData.shelterLocation || ''
+      });
+      console.log(`Euthanasia data saved to מעקב כללי tab for ${euthanasiaData.animalName}`);
+    }
+    
+    // Remove the animal from the main list
+    await removeAnimalFromList(euthanasiaData.animalType, euthanasiaData.animalName);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveEuthanasiaData:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save birth data to tracking sheet
+  Headers: שם	מין	תאריך	סוג חיה	פעולה	שבב	מתחם במקלט	שם האם
+  Also creates new animal sheet and adds to main list with formatted name
+---------------------------------------------------*/
+export async function saveBirthData(birthData) {
+  try {
+    console.log(`>> saveBirthData:`, birthData);
+    await ensureConfigLoaded();
+    
+    const trackingSheetId = process.env.TRACKING_SHEET_ID_2026;
+    if (!trackingSheetId) {
+      throw new Error('TRACKING_SHEET_ID_2026 not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(trackingSheetId);
+    
+    // Find the "המלטות" tab
+    const birthSheet = doc.sheetsByTitle['המלטות'];
+    if (!birthSheet) {
+      throw new Error('Sheet "המלטות" not found in tracking document');
+    }
+    
+    await birthSheet.loadHeaderRow();
+    
+    // Add to "המלטות" tab
+    await birthSheet.addRow({
+      'שם': birthData.animalName || '',
+      'מין': birthData.gender || '',
+      'תאריך': birthData.date || '',
+      'סוג חיה': birthData.animalType || '',
+      'פעולה': 'המלטה',
+      'שבב': birthData.chipId || '',
+      'מתחם במקלט': birthData.shelterLocation || '',
+      'שם האם': birthData.motherName || ''
+    });
+    
+    console.log(`Birth data saved to המלטות tab for ${birthData.animalName}`);
+    
+    // Also add to "מעקב כללי" tab
+    const generalTrackingSheet = doc.sheetsByTitle['מעקב כללי'];
+    if (generalTrackingSheet) {
+      await generalTrackingSheet.loadHeaderRow();
+      await generalTrackingSheet.addRow({
+        'שם': birthData.animalName || '',
+        'מין': birthData.gender || '',
+        'תאריך': birthData.date || '',
+        'סוג חיה': birthData.animalType || '',
+        'פעולה': 'המלטה',
+        'שבב': birthData.chipId || '',
+        'מתחם במקלט': birthData.shelterLocation || ''
+      });
+      console.log(`Birth data saved to מעקב כללי tab for ${birthData.animalName}`);
+    }
+    
+    // Format the name with parent information
+    let formattedName = birthData.animalName;
+    if (birthData.motherName) {
+      if (birthData.gender === 'נקבה') {
+        formattedName = `${birthData.animalName} (בת של ${birthData.motherName})`;
+      } else if (birthData.gender === 'זכר') {
+        formattedName = `${birthData.animalName} (בן של ${birthData.motherName})`;
+      }
+    }
+    
+    // Format the source field with mother name
+    let sourceField = '';
+    if (birthData.motherName) {
+      if (birthData.gender === 'נקבה') {
+        sourceField = `בת של ${birthData.motherName}`;
+      } else if (birthData.gender === 'זכר') {
+        sourceField = `בן של ${birthData.motherName}`;
+      }
+    }
+    
+    // Create animal data with formatted name
+    const animalData = {
+      name: formattedName,
+      sex: birthData.gender || '',
+      id: birthData.chipId || '',
+      birth_date: birthData.date || '',
+      arrival_date: birthData.date || '', // Same as birth date for births
+      location: birthData.shelterLocation || '',
+      description: birthData.description || '', // Maps to תיאור column
+      source: sourceField // Maps to מקור column with formatted parent info
+    };
+    
+    // Convert animal type to English key if needed
+    const animalTypeKey = await getAnimalTypeKey(birthData.animalType);
+    
+    // Add the animal to the main list and create treatment sheet
+    await addAnimalToList(animalTypeKey, animalData);
+    
+    // Create treatment sheet for the newborn animal
+    const treatmentSheetName = `עותק של ${birthData.animalName} ${birthData.chipId || ''}`;
+    await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
+    console.log(`Created treatment sheet for newborn: ${treatmentSheetName}`);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveBirthData:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save arrival data to tracking sheet
+  Headers: שם	מין	תאריך	סוג חיה	פעולה	שבב	מתחם במקלט	רקע
+  Also creates new animal sheet and adds to main list
+---------------------------------------------------*/
+export async function saveArrivalData(arrivalData) {
+  try {
+    console.log(`>> saveArrivalData:`, arrivalData);
+    await ensureConfigLoaded();
+    
+    const trackingSheetId = process.env.TRACKING_SHEET_ID_2026;
+    if (!trackingSheetId) {
+      throw new Error('TRACKING_SHEET_ID_2026 not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(trackingSheetId);
+    
+    // Find the "קליטות" tab
+    const arrivalSheet = doc.sheetsByTitle['קליטות'];
+    if (!arrivalSheet) {
+      throw new Error('Sheet "קליטות" not found in tracking document');
+    }
+    
+    await arrivalSheet.loadHeaderRow();
+    
+    // Add to "קליטות" tab
+    await arrivalSheet.addRow({
+      'שם': arrivalData.animalName || '',
+      'מין': arrivalData.gender || '',
+      'תאריך': arrivalData.date || '',
+      'סוג חיה': arrivalData.animalType || '',
+      'פעולה': 'קליטה',
+      'שבב': arrivalData.chipId || '',
+      'מתחם במקלט': arrivalData.shelterLocation || '',
+      'רקע': arrivalData.background || ''
+    });
+    
+    console.log(`Arrival data saved to קליטות tab for ${arrivalData.animalName}`);
+    
+    // Also add to "מעקב כללי" tab
+    const generalTrackingSheet = doc.sheetsByTitle['מעקב כללי'];
+    if (generalTrackingSheet) {
+      await generalTrackingSheet.loadHeaderRow();
+      await generalTrackingSheet.addRow({
+        'שם': arrivalData.animalName || '',
+        'מין': arrivalData.gender || '',
+        'תאריך': arrivalData.date || '',
+        'סוג חיה': arrivalData.animalType || '',
+        'פעולה': 'קליטה',
+        'שבב': arrivalData.chipId || '',
+        'מתחם במקלט': arrivalData.shelterLocation || ''
+      });
+      console.log(`Arrival data saved to מעקב כללי tab for ${arrivalData.animalName}`);
+    }
+    
+    // Create animal data
+    const animalData = {
+      name: arrivalData.animalName,
+      sex: arrivalData.gender || '',
+      id: arrivalData.chipId || '',
+      arrival_date: arrivalData.date || '',
+      location: arrivalData.shelterLocation || '',
+      description: arrivalData.description || '', // Maps to תיאור column
+      source: arrivalData.background || '' // Maps to מקור column
+    };
+    
+    // Convert animal type to English key if needed
+    const animalTypeKey = await getAnimalTypeKey(arrivalData.animalType);
+    
+    // Add the animal to the main list and create treatment sheet
+    await addAnimalToList(animalTypeKey, animalData);
+    
+    // Create treatment sheet for the new arrival
+    const treatmentSheetName = `${arrivalData.animalName} ${arrivalData.chipId || ''}`;
+    await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
+    console.log(`Created treatment sheet for arrival: ${treatmentSheetName}`);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveArrivalData:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save death data to tracking sheet
+  Headers: שם	מין	תאריך	סוג חיה	פעולה	שבב	מתחם במקלט	סיבה
+  Also removes the animal from the main list
+---------------------------------------------------*/
+export async function saveDeathData(deathData) {
+  try {
+    console.log(`>> saveDeathData:`, deathData);
+    await ensureConfigLoaded();
+    
+    const trackingSheetId = process.env.TRACKING_SHEET_ID_2026;
+    if (!trackingSheetId) {
+      throw new Error('TRACKING_SHEET_ID_2026 not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(trackingSheetId);
+    
+    // Find the "פטירות" tab
+    const deathSheet = doc.sheetsByTitle['פטירות'];
+    if (!deathSheet) {
+      throw new Error('Sheet "פטירות" not found in tracking document');
+    }
+    
+    await deathSheet.loadHeaderRow();
+    
+    // Add to "פטירות" tab
+    await deathSheet.addRow({
+      'שם': deathData.animalName || '',
+      'מין': deathData.gender || '',
+      'תאריך': deathData.date || '',
+      'סוג חיה': deathData.animalType || '',
+      'פעולה': 'פטירה',
+      'שבב': deathData.chipId || '',
+      'מתחם במקלט': deathData.shelterLocation || '',
+      'סיבה': deathData.reason || ''
+    });
+    
+    console.log(`Death data saved to פטירות tab for ${deathData.animalName}`);
+    
+    // Also add to "מעקב כללי" tab
+    const generalTrackingSheet = doc.sheetsByTitle['מעקב כללי'];
+    if (generalTrackingSheet) {
+      await generalTrackingSheet.loadHeaderRow();
+      await generalTrackingSheet.addRow({
+        'שם': deathData.animalName || '',
+        'מין': deathData.gender || '',
+        'תאריך': deathData.date || '',
+        'סוג חיה': deathData.animalType || '',
+        'פעולה': 'פטירה',
+        'שבב': deathData.chipId || '',
+        'מתחם במקלט': deathData.shelterLocation || ''
+      });
+      console.log(`Death data saved to מעקב כללי tab for ${deathData.animalName}`);
+    }
+    
+    // Remove the animal from the main list
+    await removeAnimalFromList(deathData.animalType, deathData.animalName);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveDeathData:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
   Sort animal treatments by date descending
 ---------------------------------------------------*/
 export async function sortAnimalTreatmentsByDateDescending(spreadsheetId){
@@ -1017,6 +1535,55 @@ export async function getCaregiverNameFromSheet(email) {
 }
 
 /*--------------------------------------------------  
+  Authenticate caregiver with email and password
+---------------------------------------------------*/ 
+export async function authenticateCaregiver(email, password) {
+  try {
+    console.log('>>> Authenticating caregiver with email:', email);
+    await ensureConfigLoaded();
+    const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
+    if (!spreadsheetId) throw new Error('Could not find caregiver sheet');
+    
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0]; 
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    
+    const caregiverColIndex = headers.findIndex(h => h && h.trim() === 'מטפל');
+    const emailColIndex = headers.findIndex(h => h && h.trim().toLowerCase() === 'מייל');
+    const passwordColIndex = headers.findIndex(h => h && h.trim() === 'סיסמה');
+
+    if (caregiverColIndex === -1) {
+      throw new Error(`Could not find 'מטפל' header in sheet ${spreadsheetId}`);
+    }
+    if (emailColIndex === -1) {
+      throw new Error(`Could not find 'מייל' header in sheet ${spreadsheetId}`);
+    }
+    if (passwordColIndex === -1) {
+      throw new Error(`Could not find 'סיסמה' header in sheet ${spreadsheetId}`);
+    }
+    
+    const rows = await sheet.getRows();
+    for (const row of rows) {
+      const rowEmail = row._rawData?.[emailColIndex];
+      const rowPassword = row._rawData?.[passwordColIndex];
+      const caregiverName = row._rawData?.[caregiverColIndex];
+      
+      if (email === rowEmail && password === rowPassword) {
+        console.log(`<<< Authentication successful for: ${caregiverName}`);
+        return { success: true, caregiverName };
+      }
+    }
+    
+    console.log('<<< Authentication failed: Invalid credentials');
+    return { success: false };
+  } catch (error) {
+    console.error('Error in authenticateCaregiver:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------  
   Get all caregivers from sheet
 ---------------------------------------------------*/ 
 export async function getAllCaregivers() {
@@ -1089,8 +1656,8 @@ export async function getAnimalsAndTreatmentsForCaregiver(caregiverName, include
           animal.isPersonalComplete = false;
           animal.isPersonalIncomplete = false;
           
-          const spreadsheetId = await findSpreadsheetInFolder(animalType, animal.id);
-          console.log(`Animal ID: ${animal.id}, Spreadsheet ID: ${spreadsheetId}`);
+          const spreadsheetId = await findSpreadsheetInFolder(animalType, animal.name);
+          console.log(`Animal Name: ${animal.name}, Spreadsheet ID: ${spreadsheetId}`);
           
           if(spreadsheetId) {
             // Get all treatment times with categorization
@@ -1152,7 +1719,7 @@ export async function getAnimalsAndTreatmentsForCaregiver(caregiverName, include
               console.log(`Animal: ${animal.name} has no treatments today - showing as personal incomplete`);
             }
           } else {
-            console.log(`No treatment sheet found for animal ID: ${animal.id}`);
+            console.log(`No treatment sheet found for animal name: ${animal.name}`);
             // No sheet = show as personal incomplete
             animal.isPersonalIncomplete = true;
           }
@@ -1649,7 +2216,7 @@ export async function updateAnimalInList(animalType, animalName, updateData = {}
       const cellValue = row._rawData?.[nameColIndex];
       const rowName = (cellValue).toString().trim();
       
-      console.log(`Row ${i} name: "${rowName}" (raw:`, cellValue, ')');
+      //console.log(`Row ${i} name: "${rowName}" (raw:`, cellValue, ')');
       rowIndex = i;
       return rowName === targetName;
     });
@@ -1689,6 +2256,121 @@ export async function updateAnimalInList(animalType, animalName, updateData = {}
     return { success: true };
   } catch (error) {
     console.error('Error in updateAnimalInList:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Rename animal treatment spreadsheet
+---------------------------------------------------*/
+export async function renameAnimalTreatmentSheet(animalType, oldAnimalName, newId) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> renameAnimalTreatmentSheet for animal: ${oldAnimalName}, newId: ${newId}`);
+    
+    // Find the spreadsheet
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, oldAnimalName);
+    if (!spreadsheetId) {
+      console.warn(`No spreadsheet found for animal: ${oldAnimalName}`);
+      return { success: false, message: 'Spreadsheet not found' };
+    }
+    
+    // Extract animal name (first word before any spaces/numbers)
+    const animalNameOnly = oldAnimalName.split(' ')[0];
+    
+    // Use user OAuth client for Drive API
+    const userAuth = getUserOAuthClient();
+    const drive = google.drive({ version: 'v3', auth: userAuth });
+    
+    // Get current filename
+    const fileResponse = await drive.files.get({
+      fileId: spreadsheetId,
+      fields: 'name'
+    });
+    
+    const oldFileName = fileResponse.data.name;
+    console.log(`Current filename: "${oldFileName}"`);
+    
+    // Determine the new filename based on the original format
+    let newFileName;
+    if (oldFileName.startsWith('עותק של ')) {
+      // Format: "עותק של [name] [id]" or "עותק של [name]"
+      newFileName = `עותק של ${animalNameOnly} ${newId}`;
+    } else {
+      // Format: "[name] [id]" or just "[name]"
+      newFileName = `${animalNameOnly} ${newId}`;
+    }
+    
+    // Only rename if the name actually changed
+    if (oldFileName === newFileName) {
+      console.log('Filename already matches, no rename needed');
+      return { success: true };
+    }
+    
+    console.log(`Renaming spreadsheet to: "${newFileName}"`);
+    
+    // Rename the file
+    await drive.files.update({
+      fileId: spreadsheetId,
+      requestBody: {
+        name: newFileName
+      },
+      fields: 'id, name'
+    });
+    
+    console.log(`✓ Successfully renamed treatment sheet`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in renameAnimalTreatmentSheet:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Remove animal from main list
+---------------------------------------------------*/
+export async function removeAnimalFromList(animalType, animalName) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> removeAnimalFromList for animal: ${animalName} of type: ${animalType}`);
+
+    const animalTypeKey = await getAnimalTypeKey(animalType);
+    const spreadsheetId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey]?.sheetId;
+    if (!spreadsheetId) {
+      throw new Error(`No sheet found for animal type: ${animalType}`);
+    }
+
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];
+
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    console.log('Headers from sheet:', headers);
+
+    const nameColIndex = headers.findIndex(h => h && h.trim() === 'שם');
+    console.log('Name column index:', nameColIndex);
+
+    if (nameColIndex === -1) {
+      throw new Error(`Could not find 'שם' header in sheet ${spreadsheetId}`);
+    }
+
+    const rows = await sheet.getRows();
+    const targetName = animalName.toString().trim();
+    const targetRow = rows.find((row) => {
+      const cellValue = row._rawData?.[nameColIndex];
+      const rowName = cellValue?.toString().trim();
+      return rowName === targetName;
+    });
+
+    if (!targetRow) {
+      throw new Error(`Animal with name "${animalName}" not found in sheet ${spreadsheetId}`);
+    }
+
+    await targetRow.delete();
+    console.log(`Animal ${animalName} removed successfully from ${animalType} list.`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in removeAnimalFromList:', error);
     throw error;
   }
 }
@@ -2334,6 +3016,286 @@ export async function saveAnimalPhoto(animalType, animalName, photoBase64) {
     return { success: true };
   } catch (error) {
     console.error('Error in saveAnimalPhoto:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save daily event to DAILY_EVENTS sheet
+  Headers: תאריך	אירועים
+---------------------------------------------------*/
+export async function saveDailyEvent(date, event) {
+  try {
+    console.log(`>> saveDailyEvent: date=${date}, event=${event}`);
+    await ensureConfigLoaded();
+    
+    const dailyEventsSheetId = process.env.DAILY_EVENTS_ID;
+    if (!dailyEventsSheetId) {
+      throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(dailyEventsSheetId);
+    
+    // Find the "יומי" tab
+    const dailySheet = doc.sheetsByTitle['יומי'];
+    if (!dailySheet) {
+      throw new Error('Sheet "יומי" not found in daily events document');
+    }
+    
+    await dailySheet.loadHeaderRow();
+    
+    // Add a new row with the event
+    await dailySheet.addRow({
+      'תאריך': date || '',
+      'אירועים': event || ''
+    });
+    
+    console.log(`Daily event saved for ${date}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveDailyEvent:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Get daily events for a specific date
+---------------------------------------------------*/
+export async function getDailyEvents(date) {
+  try {
+    console.log(`>> getDailyEvents for date: ${date}`);
+    await ensureConfigLoaded();
+    
+    const dailyEventsSheetId = process.env.DAILY_EVENTS_ID;
+    if (!dailyEventsSheetId) {
+      throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(dailyEventsSheetId);
+    
+    // Find the "יומי" tab
+    const dailySheet = doc.sheetsByTitle['יומי'];
+    if (!dailySheet) {
+      throw new Error('Sheet "יומי" not found in daily events document');
+    }
+    
+    await dailySheet.loadHeaderRow();
+    const headers = dailySheet.headerValues;
+    const headerMap = {};
+    
+    headers.forEach((name, idx) => {
+      headerMap[name.trim()] = idx;
+    });
+    
+    const rows = await dailySheet.getRows();
+    
+    // Filter rows by date and return events
+    const events = rows
+      .filter(row => row._rawData?.[headerMap['תאריך']] === date)
+      .map(row => row._rawData?.[headerMap['אירועים']] || '')
+      .filter(event => event); // Remove empty events
+    
+    console.log(`Found ${events.length} events for ${date}`);
+    return events;
+  } catch (error) {
+    console.error('Error in getDailyEvents:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Delete a daily event for a specific date
+---------------------------------------------------*/
+export async function deleteDailyEvent(date, event) {
+  try {
+    console.log(`>> deleteDailyEvent for date: ${date}, event: ${event}`);
+    await ensureConfigLoaded();
+    
+    const dailyEventsSheetId = process.env.DAILY_EVENTS_ID;
+    if (!dailyEventsSheetId) {
+      throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(dailyEventsSheetId);
+    
+    // Find the "יומי" tab
+    const dailySheet = doc.sheetsByTitle['יומי'];
+    if (!dailySheet) {
+      throw new Error('Sheet "יומי" not found in daily events document');
+    }
+    
+    await dailySheet.loadHeaderRow();
+    const headers = dailySheet.headerValues;
+    const headerMap = {};
+    
+    headers.forEach((name, idx) => {
+      headerMap[name.trim()] = idx;
+    });
+    
+    const rows = await dailySheet.getRows();
+    
+    // Find the row to delete (match both date and event)
+    const rowToDelete = rows.find(row => 
+      row._rawData?.[headerMap['תאריך']] === date && 
+      row._rawData?.[headerMap['אירועים']] === event
+    );
+    
+    if (rowToDelete) {
+      await rowToDelete.delete();
+      console.log(`Deleted event: ${event} for date: ${date}`);
+      return { success: true };
+    } else {
+      console.log(`Event not found: ${event} for date: ${date}`);
+      return { success: false, message: 'Event not found' };
+    }
+  } catch (error) {
+    console.error('Error in deleteDailyEvent:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save caregiver note to their personal tab
+---------------------------------------------------*/
+export async function saveCaregiverNote(caregiverName, date, note) {
+  try {
+    console.log(`>> saveCaregiverNote for caregiver: ${caregiverName}, date: ${date}, note: ${note}`);
+    await ensureConfigLoaded();
+    
+    const caregiverNotesSheetId = process.env.DAILY_EVENTS_ID;
+    if (!caregiverNotesSheetId) {
+      throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(caregiverNotesSheetId);
+    
+    // Find or create the caregiver's tab
+    let caregiverSheet = doc.sheetsByTitle[caregiverName];
+    if (!caregiverSheet) {
+      // Create new sheet for this caregiver
+      console.log(`Creating new sheet for caregiver: ${caregiverName}`);
+      caregiverSheet = await doc.addSheet({ 
+        title: caregiverName,
+        headerValues: ['תאריך', 'אירועים']
+      });
+      console.log(`Created new sheet for caregiver: ${caregiverName}`);
+      
+      // Reload the document to get the new sheet
+      await doc.loadInfo();
+      caregiverSheet = doc.sheetsByTitle[caregiverName];
+    }
+    
+    // Load header row (same as saveDailyEvent)
+    await caregiverSheet.loadHeaderRow();
+    
+    // Add a new row with the note (same structure as saveDailyEvent)
+    await caregiverSheet.addRow({
+      'תאריך': date || '',
+      'אירועים': note || ''
+    });
+    
+    console.log(`Caregiver note saved for ${caregiverName} on ${date}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveCaregiverNote:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Get caregiver notes for a specific date
+---------------------------------------------------*/
+export async function getCaregiverNotes(caregiverName, date) {
+  try {
+    console.log(`>> getCaregiverNotes for caregiver: ${caregiverName}, date: ${date}`);
+    await ensureConfigLoaded();
+    
+    const caregiverNotesSheetId = process.env.DAILY_EVENTS_ID;
+    if (!caregiverNotesSheetId) {
+      throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(caregiverNotesSheetId);
+    
+    // Find the caregiver's tab
+    const caregiverSheet = doc.sheetsByTitle[caregiverName];
+    if (!caregiverSheet) {
+      console.log(`No sheet found for caregiver: ${caregiverName}`);
+      return [];
+    }
+    
+    await caregiverSheet.loadHeaderRow();
+    const headers = caregiverSheet.headerValues;
+    const headerMap = {};
+    
+    headers.forEach((name, idx) => {
+      headerMap[name.trim()] = idx;
+    });
+    
+    const rows = await caregiverSheet.getRows();
+    
+    // Filter rows by date and return notes
+    const notes = rows
+      .filter(row => row._rawData?.[headerMap['תאריך']] === date)
+      .map(row => row._rawData?.[headerMap['הערות']] || '')
+      .filter(note => note); // Remove empty notes
+    
+    console.log(`Found ${notes.length} notes for ${caregiverName} on ${date}`);
+    return notes;
+  } catch (error) {
+    console.error('Error in getCaregiverNotes:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Delete a caregiver note
+---------------------------------------------------*/
+export async function deleteCaregiverNote(caregiverName, date, note) {
+  try {
+    console.log(`>> deleteCaregiverNote for caregiver: ${caregiverName}, date: ${date}, note: ${note}`);
+    await ensureConfigLoaded();
+    
+    const caregiverNotesSheetId = process.env.DAILY_EVENTS_ID;
+    if (!caregiverNotesSheetId) {
+      throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
+    }
+    
+    const doc = await getDoc(caregiverNotesSheetId);
+    
+    // Find the caregiver's tab
+    const caregiverSheet = doc.sheetsByTitle[caregiverName];
+    if (!caregiverSheet) {
+      console.log(`No sheet found for caregiver: ${caregiverName}`);
+      return { success: false, message: 'Caregiver sheet not found' };
+    }
+    
+    await caregiverSheet.loadHeaderRow();
+    const headers = caregiverSheet.headerValues;
+    const headerMap = {};
+    
+    headers.forEach((name, idx) => {
+      headerMap[name.trim()] = idx;
+    });
+    
+    const rows = await caregiverSheet.getRows();
+    
+    // Find the row to delete (match both date and note)
+    const rowToDelete = rows.find(row => 
+      row._rawData?.[headerMap['תאריך']] === date && 
+      row._rawData?.[headerMap['הערות']] === note
+    );
+    
+    if (rowToDelete) {
+      await rowToDelete.delete();
+      console.log(`Deleted note for ${caregiverName}: ${note} on ${date}`);
+      return { success: true };
+    } else {
+      console.log(`Note not found for ${caregiverName}: ${note} on ${date}`);
+      return { success: false, message: 'Note not found' };
+    }
+  } catch (error) {
+    console.error('Error in deleteCaregiverNote:', error);
     throw error;
   }
 }

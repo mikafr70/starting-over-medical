@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
@@ -35,9 +35,13 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
   const [selectedAnimal, setSelectedAnimal] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const hasLoadedTypesRef = useRef(false);
   
   useEffect(() => {
+    if (hasLoadedTypesRef.current) return;
+    
     const loadTypes = async () => {
+      hasLoadedTypesRef.current = true;
       setIsProcessing(true);
       try {
         const res = await fetch(API_ENDPOINTS.treatments());
@@ -151,7 +155,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
                       <div className="px-2 py-2 text-gray-500">לא נמצאו חיות תואמות</div>
                     ) : (
                       filteredAnimals.map(a => (
-                        <SelectItem key={a.id} value={a.name}>{a.name} {a.id_number ? `(${a.id_number})` : `(${a.id})`}</SelectItem>
+                        <SelectItem key={a.id} value={a.name}>{a.name} ({a.id_number || ''})</SelectItem>
                       ))
                     )}
                   </SelectContent>

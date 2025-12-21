@@ -4,8 +4,9 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Heart } from "lucide-react";
+import { Heart, Loader2 } from "lucide-react";
 import React from "react";
+import { toast } from "sonner";
 
 interface LoginProps {
   onLogin: (username: string) => void;
@@ -17,10 +18,38 @@ export function Login({ onLogin }: LoginProps) {
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin(loginEmail || "מטפל/ת");
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: loginEmail,
+          password: loginPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success('התחברת בהצלחה!');
+        onLogin(loginEmail);
+      } else {
+        toast.error(data.error || 'אימייל או סיסמה שגויים');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      toast.error('שגיאה בהתחברות. נסה שוב.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleRegister = (e: React.FormEvent) => {
@@ -52,9 +81,9 @@ export function Login({ onLogin }: LoginProps) {
                 <CardDescription className="text-right">הכנס את פרטי ההתחברות שלך</CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">אימייל</Label>
+                <form onSubmit={handleLogin} className="space-y-4 text-right">
+                  <div className="space-y-2 text-right">
+                    <Label htmlFor="email" dir="rtl" className="text-right block">אימייל</Label>
                     <Input
                       id="email"
                       type="email"
@@ -62,10 +91,12 @@ export function Login({ onLogin }: LoginProps) {
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       required
+                      className="text-right"
+                      dir="rtl"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="password">סיסמה</Label>
+                  <div className="space-y-2 text-right">
+                    <Label htmlFor="password" dir="rtl" className="text-right block">סיסמה</Label>
                     <Input
                       id="password"
                       type="password"
@@ -73,10 +104,20 @@ export function Login({ onLogin }: LoginProps) {
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       required
+                      disabled={isLoading}
+                      className="text-right"
+                      dir="rtl"
                     />
                   </div>
-                  <Button type="submit" className="w-full">
-                    התחבר
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                        מתחבר...
+                      </>
+                    ) : (
+                      'התחבר'
+                    )}
                   </Button>
                 </form>
               </CardContent>
@@ -99,7 +140,7 @@ export function Login({ onLogin }: LoginProps) {
                       placeholder="שם פרטי ומשפחה"
                       value={registerName}
                       onChange={(e) => setRegisterName(e.target.value)}
-                      required className="text-left"
+                      required className="text-right"
                     />
                   </div>
                   <div className="space-y-2">

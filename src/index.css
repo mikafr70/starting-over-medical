@@ -2054,6 +2054,11 @@
   --sidebar-ring: oklch(.439 0 0);
 }
 
+html, body {
+  direction: rtl !important;
+  text-align: right !important;
+}
+
 html {
   font-size: var(--font-size);
 }
