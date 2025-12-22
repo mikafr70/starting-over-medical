@@ -353,7 +353,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
       // API returns {animals, protocols} object where animals have displayName instead of name
       const rawAnimals = Array.isArray(data) ? data : (data.animals || []);
       // Map displayName to name for component compatibility
-      const animals = rawAnimals.map(a => ({
+      const animals = rawAnimals.map((a: any) => ({
         ...a,
         id: a.id_number || a.id,
         name: a.displayName || a.name
