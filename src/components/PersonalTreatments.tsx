@@ -80,10 +80,11 @@ const animalTypeToHebrew: { [key: string]: string } = {
 
 interface PersonalTreatmentsProps {
   onSelectAnimal: (animalType: string, animalName: string) => void;
+  onAddTreatment?: () => void;
   email: string;
 }
 
-export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatmentsProps) {
+export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: PersonalTreatmentsProps) {
   const [caregiverName, setCaregiverName] = useState<string>("");
   const [animalsForTodayList, setAnimalsForTodayList] = useState<Animal[]>([]);
   const [generalTreatments, setGeneralTreatments] = useState<GeneralTreatment[]>([]);
@@ -105,7 +106,22 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
   const [newNote, setNewNote] = useState('');
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
+  const [selectedNoteDate, setSelectedNoteDate] = useState<string>(''); // DD.MM.YYYY format
   const [completingTreatment, setCompletingTreatment] = useState<string | null>(null);
+
+  // Get today's date in DD.MM.YYYY format
+  const getTodayStr = () => {
+    const today = new Date();
+    return `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+  };
+
+  // Initialize selectedNoteDate to today when component mounts
+  useEffect(() => {
+    if (!selectedNoteDate) {
+      setSelectedNoteDate(getTodayStr());
+    }
+  }, []);
+
   const isFetchingRef = useRef(false);
   const lastEmailRef = useRef<string>("");
 
@@ -177,17 +193,14 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
     fetchCaregiverAndAnimals();
   }, [email]);
 
-  // Fetch caregiver notes for today
+  // Fetch caregiver notes for selected date
   useEffect(() => {
     const fetchNotes = async () => {
-      if (!caregiverName) return;
-      
-      const today = new Date();
-      const date = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+      if (!caregiverName || !selectedNoteDate) return;
       
       try {
         setLoadingNotes(true);
-        const response = await fetch(`/api/caregiver-notes?caregiverName=${encodeURIComponent(caregiverName)}&date=${encodeURIComponent(date)}`);
+        const response = await fetch(`/api/caregiver-notes?caregiverName=${encodeURIComponent(caregiverName)}&date=${encodeURIComponent(selectedNoteDate)}`);
         const data = await response.json();
         
         if (response.ok) {
@@ -203,14 +216,11 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
     };
 
     fetchNotes();
-  }, [caregiverName]);
+  }, [caregiverName, selectedNoteDate]);
 
   // Save caregiver note
   const handleSaveNote = async () => {
-    if (!newNote.trim() || !caregiverName) return;
-    
-    const today = new Date();
-    const date = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+    if (!newNote.trim() || !caregiverName || !selectedNoteDate) return;
     
     try {
       setSavingNote(true);
@@ -219,14 +229,16 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           caregiverName,
-          date,
-          note: newNote.trim()
+          date: selectedNoteDate,
+          note: newNote.trim(),
+
         })
       });
 
       const data = await response.json();
       
       if (response.ok) {
+        // Always update the list since we're viewing the notes for the selected date
         setCaregiverNotes([...caregiverNotes, newNote.trim()]);
         setNewNote('');
         toast.success('הערה נשמרה בהצלחה');
@@ -244,10 +256,7 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
 
   // Delete caregiver note
   const handleDeleteNote = async (noteToDelete: string) => {
-    if (!caregiverName) return;
-    
-    const today = new Date();
-    const date = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+    if (!caregiverName || !selectedNoteDate) return;
     
     try {
       const response = await fetch('/api/caregiver-notes', {
@@ -255,7 +264,7 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           caregiverName,
-          date,
+          date: selectedNoteDate,
           note: noteToDelete
         })
       });
@@ -742,7 +751,9 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
             <Card className="xl:sticky xl:top-6">
               <CardHeader>
                 <CardTitle className="text-right">הערות אישיות</CardTitle>
-                <CardDescription className="text-right">הערות והודעות ליום</CardDescription>
+                <CardDescription className="text-right">
+                  {selectedNoteDate && `הערות והודעות ל-${selectedNoteDate}`}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Notes List */}
@@ -776,6 +787,23 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
 
                 {/* Note Input */}
                 <div className="space-y-2 pt-4 border-t">
+                  {/* Date Picker */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-right whitespace-nowrap">תאריך:</label>
+                    <input
+                      type="date"
+                      value={selectedNoteDate ? 
+                        // Convert DD.MM.YYYY to YYYY-MM-DD for input
+                        selectedNoteDate.split('.').reverse().join('-') : 
+                        ''}
+                      onChange={(e) => {
+                        // Convert YYYY-MM-DD to DD.MM.YYYY
+                        const [year, month, day] = e.target.value.split('-');
+                        setSelectedNoteDate(`${day}.${month}.${year}`);
+                      }}
+                      className="flex-1 px-3 py-2 border rounded-md text-sm"
+                    />
+                  </div>
                   <Textarea
                     placeholder="הזן הערה..."
                     value={newNote}
@@ -785,7 +813,7 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
                   />
                   <Button
                     onClick={handleSaveNote}
-                    disabled={!newNote.trim() || savingNote}
+                    disabled={!newNote.trim() || savingNote || !selectedNoteDate}
                     className="w-full"
                     style={{ backgroundColor: '#A67C52' }}
                   >
@@ -804,6 +832,31 @@ export function PersonalTreatments({ onSelectAnimal, email }: PersonalTreatments
           </div>
         </div>
       </div>
+
+      {/* Add Treatment Button - Desktop */}
+      {onAddTreatment && (
+        <div className="hidden md:block fixed top-24 left-8 z-10">
+          <Button
+            onClick={onAddTreatment}
+            className="gap-2 shadow-lg"
+            size="lg"
+          >
+            <Pill className="w-5 h-5" />
+            הוסף טיפול
+          </Button>
+        </div>
+      )}
+
+      {/* Add Treatment Button - Mobile (Floating) */}
+      {onAddTreatment && (
+        <Button
+          onClick={onAddTreatment}
+          className="md:hidden fixed bottom-6 left-6 z-10 w-14 h-14 rounded-full shadow-xl p-0"
+          size="icon"
+        >
+          <Pill className="w-6 h-6" />
+        </Button>
+      )}
 
       {/* Remove Caregiver Dialog */}
       <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>

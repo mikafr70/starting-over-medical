@@ -3235,9 +3235,11 @@ export async function getCaregiverNotes(caregiverName, date) {
     const rows = await caregiverSheet.getRows();
     
     // Filter rows by date and return notes
+    // Support both 'הערות' and 'אירועים' column names for backwards compatibility
+    const notesColumnName = headerMap['הערות'] !== undefined ? 'הערות' : 'אירועים';
     const notes = rows
       .filter(row => row._rawData?.[headerMap['תאריך']] === date)
-      .map(row => row._rawData?.[headerMap['הערות']] || '')
+      .map(row => row._rawData?.[headerMap[notesColumnName]] || '')
       .filter(note => note); // Remove empty notes
     
     console.log(`Found ${notes.length} notes for ${caregiverName} on ${date}`);
@@ -3281,9 +3283,11 @@ export async function deleteCaregiverNote(caregiverName, date, note) {
     const rows = await caregiverSheet.getRows();
     
     // Find the row to delete (match both date and note)
+    // Support both 'הערות' and 'אירועים' column names for backwards compatibility
+    const notesColumnName = headerMap['הערות'] !== undefined ? 'הערות' : 'אירועים';
     const rowToDelete = rows.find(row => 
       row._rawData?.[headerMap['תאריך']] === date && 
-      row._rawData?.[headerMap['הערות']] === note
+      row._rawData?.[headerMap[notesColumnName]] === note
     );
     
     if (rowToDelete) {

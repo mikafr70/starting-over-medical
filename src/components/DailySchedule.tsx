@@ -119,8 +119,16 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const [newEvent, setNewEvent] = useState('');
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [savingEvent, setSavingEvent] = useState(false);
+  const [selectedEventDate, setSelectedEventDate] = useState<string>(''); // DD.MM.YYYY format
 
   const selectedDay = scheduleDays[selectedDayIndex];
+
+  // Initialize selectedEventDate to today when component mounts
+  useEffect(() => {
+    if (!selectedEventDate && selectedDay) {
+      setSelectedEventDate(selectedDay.date);
+    }
+  }, [selectedDay]);
 
   // Fetch treatments from API with global deduplication
   useEffect(() => {
@@ -286,9 +294,34 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     fetchDailyEvents();
   }, [selectedDay?.date]);
 
+  // Fetch events for selected event date when it changes
+  useEffect(() => {
+    const fetchEventsForDate = async () => {
+      if (!selectedEventDate) return;
+      
+      try {
+        setLoadingEvents(true);
+        const response = await fetch(`/api/daily-events?date=${encodeURIComponent(selectedEventDate)}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setDailyEvents(data.events || []);
+        } else {
+          console.error('Failed to fetch daily events:', data.error);
+        }
+      } catch (err) {
+        console.error('Error fetching daily events:', err);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+
+    fetchEventsForDate();
+  }, [selectedEventDate]);
+
   // Save daily event
   const handleSaveEvent = async () => {
-    if (!newEvent.trim()) return;
+    if (!newEvent.trim() || !selectedEventDate) return;
     
     try {
       setSavingEvent(true);
@@ -296,7 +329,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          date: selectedDay.date,
+          date: selectedEventDate,
           event: newEvent.trim()
         })
       });
@@ -304,7 +337,10 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       const data = await response.json();
       
       if (response.ok) {
-        setDailyEvents([...dailyEvents, newEvent.trim()]);
+        // Only update the list if the saved date matches the currently selected event date
+        if (selectedEventDate === selectedEventDate) {
+          setDailyEvents([...dailyEvents, newEvent.trim()]);
+        }
         setNewEvent('');
         toast.success('אירוע נשמר בהצלחה');
       } else {
@@ -326,7 +362,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          date: selectedDay.date,
+          date: selectedEventDate,
           event: eventToDelete
         })
       });
@@ -739,7 +775,9 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
               <Card className="xl:sticky xl:top-6">
                 <CardHeader>
                   <CardTitle className="text-right">אירועים יומיים</CardTitle>
-                  <CardDescription className="text-right">רשימת אירועים והערות ליום</CardDescription>
+                  <CardDescription className="text-right">
+                    {selectedEventDate && `אירועים והערות ל-${selectedEventDate}`}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Events List */}
@@ -773,6 +811,23 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
                   {/* Event Input */}
                   <div className="space-y-2 pt-4 border-t">
+                    {/* Date Picker */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-right whitespace-nowrap">תאריך:</label>
+                      <input
+                        type="date"
+                        value={selectedEventDate ? 
+                          // Convert DD.MM.YYYY to YYYY-MM-DD for input
+                          selectedEventDate.split('.').reverse().join('-') : 
+                          ''}
+                        onChange={(e) => {
+                          // Convert YYYY-MM-DD to DD.MM.YYYY
+                          const [year, month, day] = e.target.value.split('-');
+                          setSelectedEventDate(`${day}.${month}.${year}`);
+                        }}
+                        className="flex-1 px-3 py-2 border rounded-md text-sm"
+                      />
+                    </div>
                     <Textarea
                       placeholder="הזן אירוע או הערה..."
                       value={newEvent}
@@ -782,7 +837,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                     />
                     <Button
                       onClick={handleSaveEvent}
-                      disabled={!newEvent.trim() || savingEvent}
+                      disabled={!newEvent.trim() || savingEvent || !selectedEventDate}
                       className="w-full"
                       style={{ backgroundColor: '#A67C52' }}
                     >

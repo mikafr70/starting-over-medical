@@ -129,6 +129,7 @@ export default function App() {
       {currentScreen === "personalTreatments" && (
         <PersonalTreatments 
           onSelectAnimal={handleSelectAnimal}
+          onAddTreatment={handleAddTreatmentFromSchedule}
           email={userEmail}
         />
       )}
