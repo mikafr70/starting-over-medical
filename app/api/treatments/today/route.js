@@ -1,5 +1,9 @@
 import { time } from 'console';
 import { getRecentlyEditedFilesInFolderWithTreatmentsToday, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded, getAnimalPhoto} from '../../../../src/lib/sheets.js';
+
+export const runtime = 'nodejs';
+export const maxDuration = 60; // Increase timeout for this endpoint
+
 // app/api/treatments/today/route.ts
 export const dynamic = 'force-dynamic';      // don't pre-render at build
 export const fetchCache = 'force-no-store';  // don't cache in the static cache

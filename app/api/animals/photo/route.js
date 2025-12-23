@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getAnimalPhoto, saveAnimalPhoto } from '../../../../src/lib/sheets.js';
 
+export const runtime = 'nodejs';
+export const maxDuration = 30;
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);

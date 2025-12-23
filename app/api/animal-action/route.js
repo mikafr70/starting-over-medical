@@ -1,5 +1,8 @@
 import { saveAdoptionData, saveEuthanasiaData, saveBirthData, saveArrivalData, saveDeathData } from '@/src/lib/sheets.js';
 
+export const runtime = 'nodejs';
+export const maxDuration = 30;
+
 export async function POST(req) {
   try {
     const actionData = await req.json();

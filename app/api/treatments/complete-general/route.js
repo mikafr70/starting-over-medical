@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { markGeneralTreatmentComplete, markGeneralTreatmentIncomplete } from '../../../../src/lib/sheets.js';
 
+export const runtime = 'nodejs';
+export const maxDuration = 30;
+
 export async function POST(request) {
   try {
     const { animalType, animalName, date, markAsComplete } = await request.json();
