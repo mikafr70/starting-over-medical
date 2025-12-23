@@ -129,10 +129,6 @@ export async function GET() {
         }
       }));
     }
-          console.error(`Error fetching treatments for ${animalType} on ${label}:`, error);
-        }
-      }
-    }
 
     console.log(`Found ${allTreatments.length} total treatments for yesterday, today, and tomorrow`);
     console.log(`\n${'='.repeat(80)}`);
