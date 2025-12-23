@@ -2419,8 +2419,8 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     
     console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
     
-    // Process files in parallel batches to speed up
-    const BATCH_SIZE = 3;
+    // Process files in parallel batches to speed up - increased batch size for performance
+    const BATCH_SIZE = 5; // Process 5 files at once
     for (let i = 0; i < tempResponse.data.files.length; i += BATCH_SIZE) {
       const batch = tempResponse.data.files.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(

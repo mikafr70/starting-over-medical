@@ -2,7 +2,7 @@ import { time } from 'console';
 import { getRecentlyEditedFilesInFolderWithTreatmentsToday, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded, getAnimalPhoto} from '../../../../src/lib/sheets.js';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Increase timeout for this endpoint
+export const maxDuration = 300; // Set to 5 minutes (requires Vercel Pro)
 
 // app/api/treatments/today/route.ts
 export const dynamic = 'force-dynamic';      // don't pre-render at build
@@ -23,28 +23,25 @@ export async function GET() {
     const allTreatments = [];
     const photoCache = new Map(); // Cache photos to avoid duplicate fetches
     
-    console.log('Starting to fetch treatments for yesterday, today, and tomorrow...');
+    console.log('Starting to fetch treatments for today only (optimized for performance)...');
 
-    // Calculate yesterday, today, and tomorrow dates
+    // Only fetch today's treatments to avoid timeout
     const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
     
     const datesToFetch = [
-      { date: yesterday, label: 'yesterday' },
-      { date: today, label: 'today' },
-      { date: tomorrow, label: 'tomorrow' }
+      { date: today, label: 'today' }
     ];
+    
+    // If you need yesterday/tomorrow, consider implementing a separate endpoint
+    // or upgrading to Vercel Pro for longer function execution time
 
     // Process animal types in parallel with limited concurrency
     const animalTypes = Object.keys(ANIMAL_TREATMENT_SHEETS()).filter(
       type => ANIMAL_TREATMENT_SHEETS()[type].folderId
     );
     
-    // Process 2 animal types at a time to avoid overwhelming the API
-    const CONCURRENT_ANIMAL_TYPES = 2;
+    // Process ALL animal types in parallel to maximize speed
+    const CONCURRENT_ANIMAL_TYPES = animalTypes.length; // Process all at once
     
     for (let i = 0; i < animalTypes.length; i += CONCURRENT_ANIMAL_TYPES) {
       const batch = animalTypes.slice(i, i + CONCURRENT_ANIMAL_TYPES);
@@ -130,7 +127,7 @@ export async function GET() {
       }));
     }
 
-    console.log(`Found ${allTreatments.length} total treatments for yesterday, today, and tomorrow`);
+    console.log(`Found ${allTreatments.length} total treatments for today`);
     console.log(`\n${'='.repeat(80)}`);
     console.log(`✅ API REQUEST [${requestId}] COMPLETE - Returning ${allTreatments.length} treatments`);
     console.log(`${'='.repeat(80)}\n`);
