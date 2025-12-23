@@ -31,6 +31,9 @@ interface Treatment {
 interface DailyScheduleProps {
   onSelectAnimal: (animalName: string, animalType: string) => void;
   onAddTreatment: () => void;
+  shouldReload?: boolean;
+  onReloadComplete?: () => void;
+  onTreatmentStatusChanged?: () => void;
 }
 
 interface ConfirmDialog {
@@ -96,7 +99,7 @@ const generateScheduleDays = () => {
   return days;
 };
 
-export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyScheduleProps) {
+export default function DailySchedule({ onSelectAnimal, onAddTreatment, shouldReload, onReloadComplete, onTreatmentStatusChanged }: DailyScheduleProps) {
   const [scheduleDays] = useState(generateScheduleDays());
   const [selectedDayIndex, setSelectedDayIndex] = useState(2); // Index 2 is today (middle of the array)
   const [completedTreatments, setCompletedTreatments] = useState<Set<string>>(new Set());
@@ -137,8 +140,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         setLoading(true);
         setError(null);
         
-        // Check if we already have cached data
-        if (globalFetchData) {
+        // Check if we should reload or use cached data
+        if (globalFetchData && !shouldReload) {
           console.log('✨ Using cached treatment data');
           const data = globalFetchData;
           
@@ -171,8 +174,15 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
           return;
         }
         
+        // If shouldReload is true, clear the cache and fetch fresh data
+        if (shouldReload) {
+          console.log('🔄 Reloading treatments from server...');
+          globalFetchPromise = null;
+          globalFetchData = null;
+        }
+        
         // Check if a fetch is already in progress
-        if (globalFetchPromise) {
+        if (globalFetchPromise && !shouldReload) {
           console.log('⏳ Waiting for existing API call to complete...');
           const data = await globalFetchPromise;
           
@@ -265,7 +275,14 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     };
 
     fetchTreatments();
-  }, []);
+  }, [shouldReload]);
+
+  // Notify parent when reload is complete
+  useEffect(() => {
+    if (shouldReload && !loading && onReloadComplete) {
+      onReloadComplete();
+    }
+  }, [shouldReload, loading, onReloadComplete]);
 
   // Fetch daily events when selected day changes
   useEffect(() => {
@@ -570,6 +587,11 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       }
       
       setCompletedTreatments(newCompletedTreatments);
+      
+      // Notify parent that treatment status changed
+      if (onTreatmentStatusChanged) {
+        onTreatmentStatusChanged();
+      }
       
     } catch (error) {
       console.error('Error updating treatment:', error);

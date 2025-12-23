@@ -786,7 +786,7 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
       }
 
       if (row.noon === 'TRUE' || row.noon === 'FALSE') {
-        console.log('Adding noon checkbox validation at row:', startRow);
+        //console.log('Adding noon checkbox validation at row:', startRow);
         validationRequests.push({
           setDataValidation: {
             range: {

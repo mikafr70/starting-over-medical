@@ -13,6 +13,14 @@ import { toast } from "sonner";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import React from "react";
 
+// Global cache to prevent duplicate fetches across component remounts
+let cachedCaregiverData: {
+  email: string;
+  caregiverName: string;
+  animals: Animal[];
+  generalTreatments: GeneralTreatment[];
+} | null = null;
+
 interface Treatment {
   date: string;
   day: string;
@@ -82,9 +90,12 @@ interface PersonalTreatmentsProps {
   onSelectAnimal: (animalType: string, animalName: string) => void;
   onAddTreatment?: () => void;
   email: string;
+  shouldReload?: boolean;
+  onReloadComplete?: () => void;
+  onTreatmentStatusChanged?: () => void;
 }
 
-export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: PersonalTreatmentsProps) {
+export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email, shouldReload, onReloadComplete, onTreatmentStatusChanged }: PersonalTreatmentsProps) {
   const [caregiverName, setCaregiverName] = useState<string>("");
   const [animalsForTodayList, setAnimalsForTodayList] = useState<Animal[]>([]);
   const [generalTreatments, setGeneralTreatments] = useState<GeneralTreatment[]>([]);
@@ -173,6 +184,14 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
       setAnimalsForTodayList(list);
       setGeneralTreatments(generalList);
       
+      // Cache the data for future navigations
+      cachedCaregiverData = {
+        email,
+        caregiverName: name,
+        animals: list,
+        generalTreatments: generalList
+      };
+      
       console.log("%%%%%%%%%%%% Personal Treatments - Animals fetched:", list);
       console.log("%%%%%%%%%%%% Personal Treatments - General treatments fetched:", generalList);
     } catch (err) {
@@ -184,14 +203,41 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
   };
 
   useEffect(() => {
-    // If we already fetched for this email, skip the fetch
-    if (lastEmailRef.current === email && animalsForTodayList.length > 0) {
-      console.log('⚠️ Already fetched for this email, skipping');
+    console.log('📍 PersonalTreatments useEffect triggered', {
+      email,
+      shouldReload,
+      hasData: animalsForTodayList.length > 0,
+      hasCachedData: cachedCaregiverData !== null,
+      lastEmail: lastEmailRef.current,
+      isFetching: isFetchingRef.current
+    });
+    
+    // If we have cached data for this email and don't need to reload, use cache
+    if (cachedCaregiverData && cachedCaregiverData.email === email && !shouldReload) {
+      console.log('✨ Using cached caregiver data');
+      setCaregiverName(cachedCaregiverData.caregiverName);
+      setAnimalsForTodayList(cachedCaregiverData.animals);
+      setGeneralTreatments(cachedCaregiverData.generalTreatments);
       setIsLoading(false);
       return;
     }
+    
+    // If shouldReload is true, clear cache and force a refresh
+    if (shouldReload) {
+      console.log('🔄 Reloading treatments from server...');
+      cachedCaregiverData = null;
+      isFetchingRef.current = false; // Reset to allow refetch
+    }
+    
     fetchCaregiverAndAnimals();
-  }, [email]);
+  }, [email, shouldReload]);
+
+  // Notify parent when reload is complete
+  useEffect(() => {
+    if (shouldReload && !isLoading && onReloadComplete) {
+      onReloadComplete();
+    }
+  }, [shouldReload, isLoading, onReloadComplete]);
 
   // Fetch caregiver notes for selected date
   useEffect(() => {
@@ -437,6 +483,11 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
           i === index ? { ...t, isCompleted: true } : t
         )
       );
+      
+      // Notify parent that treatment status changed
+      if (onTreatmentStatusChanged) {
+        onTreatmentStatusChanged();
+      }
     } catch (error) {
       console.error('Error completing general treatment:', error);
       toast.error("שגיאה בסימון הטיפול כבוצע");
@@ -473,6 +524,11 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
           i === index ? { ...t, isCompleted: false } : t
         )
       );
+      
+      // Notify parent that treatment status changed
+      if (onTreatmentStatusChanged) {
+        onTreatmentStatusChanged();
+      }
     } catch (error) {
       console.error('Error marking general treatment as incomplete:', error);
       toast.error("שגיאה בסימון הטיפול כלא בוצע");

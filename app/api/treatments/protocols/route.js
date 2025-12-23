@@ -26,9 +26,8 @@ export async function GET(request) {
       });
     }
 
-    const PROTOCOLS_SHEET_ID = '1dGZSpZYUDrw_xQjlHOWjvHzdj-iT6Q77kdm1U0TABeg';
-    
-    const protocols = await getProtocolsFromSheet(PROTOCOLS_SHEET_ID, animalType);
+   
+    const protocols = await getProtocolsFromSheet(process.env.PROTOCOLS_SHEET_ID, animalType);
     return new Response(JSON.stringify(protocols), {
       status: 200,
       headers: CORS_HEADERS
