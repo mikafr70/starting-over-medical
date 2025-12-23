@@ -38,25 +38,37 @@ export async function GET() {
       { date: tomorrow, label: 'tomorrow' }
     ];
 
-    // Loop over all animal types and get treatments for all three days
-    for (const animalType of Object.keys(ANIMAL_TREATMENT_SHEETS())) {
-      if (!ANIMAL_TREATMENT_SHEETS()[animalType].folderId) {
-        console.log(`Skipping ${animalType} - no folder ID configured`);
-        continue;
-      }
-
-      console.log(`Fetching treatments for ${animalType} from folder ${ANIMAL_TREATMENT_SHEETS()[animalType].folderId}`);
+    // Process animal types in parallel with limited concurrency
+    const animalTypes = Object.keys(ANIMAL_TREATMENT_SHEETS()).filter(
+      type => ANIMAL_TREATMENT_SHEETS()[type].folderId
+    );
+    
+    // Process 2 animal types at a time to avoid overwhelming the API
+    const CONCURRENT_ANIMAL_TYPES = 2;
+    
+    for (let i = 0; i < animalTypes.length; i += CONCURRENT_ANIMAL_TYPES) {
+      const batch = animalTypes.slice(i, i + CONCURRENT_ANIMAL_TYPES);
       
-      // Fetch treatments for each date
-      for (const { date, label } of datesToFetch) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        try {
-          const result = await getRecentlyEditedFilesInFolderWithTreatmentsToday(
-            ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
-            date
-          );
-          console.log(`Received ${result.length} entries for ${animalType} on ${label}`);
-          
+      await Promise.all(batch.map(async (animalType) => {
+        console.log(`Fetching treatments for ${animalType} from folder ${ANIMAL_TREATMENT_SHEETS()[animalType].folderId}`);
+        
+        // Fetch all three dates in parallel for this animal type
+        const dateResults = await Promise.all(datesToFetch.map(async ({ date, label }) => {
+          try {
+            const result = await getRecentlyEditedFilesInFolderWithTreatmentsToday(
+              ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
+              date
+            );
+            console.log(`Received ${result.length} entries for ${animalType} on ${label}`);
+            return { result, date, label, animalType };
+          } catch (error) {
+            console.error(`Error fetching ${animalType} for ${label}:`, error.message);
+            return { result: [], date, label, animalType };
+          }
+        }));
+        
+        // Process results for this animal type
+        for (const { result, date, label, animalType } of dateResults) {
           // The function returns an array like [fileName1, treatmentTimes1, fileName2, treatmentTimes2, ...]
           for (let i = 0; i < result.length; i += 2) {
             const fileName = result[i];
@@ -114,7 +126,9 @@ export async function GET() {
               });
             }
           }
-        } catch (error) {
+        }
+      }));
+    }
           console.error(`Error fetching treatments for ${animalType} on ${label}:`, error);
         }
       }

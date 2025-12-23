@@ -2419,14 +2419,29 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     
     console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
     
-    for (const file of tempResponse.data.files) {
-      const { hasTreatment,treatmentTimes} = await hasTreatmentToday(file.id, dateStr);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      if (hasTreatment) {
-        filesWithTreatmentsToday.push(file.name, treatmentTimes);
+    // Process files in parallel batches to speed up
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < tempResponse.data.files.length; i += BATCH_SIZE) {
+      const batch = tempResponse.data.files.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const { hasTreatment, treatmentTimes } = await hasTreatmentToday(file.id, dateStr);
+            return { file, hasTreatment, treatmentTimes };
+          } catch (error) {
+            console.error(`Error checking treatment for ${file.name}:`, error.message);
+            return { file, hasTreatment: false, treatmentTimes: [] };
+          }
+        })
+      );
+      
+      for (const { file, hasTreatment, treatmentTimes } of results) {
+        if (hasTreatment) {
+          filesWithTreatmentsToday.push(file.name, treatmentTimes);
+        }
       }
     }
+    
     return filesWithTreatmentsToday;
   } catch (error) {
     console.error('Error in getRecentlyEditedFilesInFolder:', error);
