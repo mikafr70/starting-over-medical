@@ -2398,10 +2398,10 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
       console.log('TEMPORARY MODE: Fetching only files edited today:', today.toISOString());
     } else {
       */
-      // Original behavior: two weeks ago
-      const twoWeeksAgo = new Date();
-      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);// - 14); !!!!!!!!!!!!!!!!!!!!!!!!!!
-      startDate = twoWeeksAgo;
+      // Fetch only files edited in the last 24 hours for performance
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      startDate = yesterday;
     //}
     
     const startDateISO = startDate.toISOString();
@@ -2419,26 +2419,22 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     
     console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
     
-    // Process files in parallel batches to speed up - increased batch size for performance
-    const BATCH_SIZE = 5; // Process 5 files at once
-    for (let i = 0; i < tempResponse.data.files.length; i += BATCH_SIZE) {
-      const batch = tempResponse.data.files.slice(i, i + BATCH_SIZE);
-      const results = await Promise.all(
-        batch.map(async (file) => {
-          try {
-            const { hasTreatment, treatmentTimes } = await hasTreatmentToday(file.id, dateStr);
-            return { file, hasTreatment, treatmentTimes };
-          } catch (error) {
-            console.error(`Error checking treatment for ${file.name}:`, error.message);
-            return { file, hasTreatment: false, treatmentTimes: [] };
-          }
-        })
-      );
-      
-      for (const { file, hasTreatment, treatmentTimes } of results) {
-        if (hasTreatment) {
-          filesWithTreatmentsToday.push(file.name, treatmentTimes);
+    // Process ALL files in parallel for maximum speed - no batching delays
+    const results = await Promise.all(
+      tempResponse.data.files.map(async (file) => {
+        try {
+          const { hasTreatment, treatmentTimes } = await hasTreatmentToday(file.id, dateStr);
+          return { file, hasTreatment, treatmentTimes };
+        } catch (error) {
+          console.error(`Error checking treatment for ${file.name}:`, error.message);
+          return { file, hasTreatment: false, treatmentTimes: [] };
         }
+      })
+    );
+    
+    for (const { file, hasTreatment, treatmentTimes } of results) {
+      if (hasTreatment) {
+        filesWithTreatmentsToday.push(file.name, treatmentTimes);
       }
     }
     

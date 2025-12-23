@@ -23,17 +23,20 @@ export async function GET() {
     const allTreatments = [];
     const photoCache = new Map(); // Cache photos to avoid duplicate fetches
     
-    console.log('Starting to fetch treatments for today only (optimized for performance)...');
+    console.log('Starting to fetch treatments for yesterday, today, and tomorrow...');
 
-    // Only fetch today's treatments to avoid timeout
+    // Calculate yesterday, today, and tomorrow dates
     const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
     
     const datesToFetch = [
-      { date: today, label: 'today' }
+      { date: yesterday, label: 'yesterday' },
+      { date: today, label: 'today' },
+      { date: tomorrow, label: 'tomorrow' }
     ];
-    
-    // If you need yesterday/tomorrow, consider implementing a separate endpoint
-    // or upgrading to Vercel Pro for longer function execution time
 
     // Process animal types in parallel with limited concurrency
     const animalTypes = Object.keys(ANIMAL_TREATMENT_SHEETS()).filter(
@@ -127,7 +130,7 @@ export async function GET() {
       }));
     }
 
-    console.log(`Found ${allTreatments.length} total treatments for today`);
+    console.log(`Found ${allTreatments.length} total treatments for yesterday, today, and tomorrow`);
     console.log(`\n${'='.repeat(80)}`);
     console.log(`✅ API REQUEST [${requestId}] COMPLETE - Returning ${allTreatments.length} treatments`);
     console.log(`${'='.repeat(80)}\n`);
