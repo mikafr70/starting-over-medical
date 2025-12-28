@@ -8,6 +8,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2, X } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { toast } from "sonner";
+import { emitEvent } from '@/src/lib/eventBus';
 
 // Global singleton to prevent duplicate API calls across component remounts
 let globalFetchPromise: Promise<any> | null = null;
@@ -31,9 +32,6 @@ interface Treatment {
 interface DailyScheduleProps {
   onSelectAnimal: (animalName: string, animalType: string) => void;
   onAddTreatment: () => void;
-  shouldReload?: boolean;
-  onReloadComplete?: () => void;
-  onTreatmentStatusChanged?: () => void;
 }
 
 interface ConfirmDialog {
@@ -99,7 +97,8 @@ const generateScheduleDays = () => {
   return days;
 };
 
-export default function DailySchedule({ onSelectAnimal, onAddTreatment, shouldReload, onReloadComplete, onTreatmentStatusChanged }: DailyScheduleProps) {
+export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyScheduleProps) {
+  const [refreshKey, setRefreshKey] = useState(0);
   const [scheduleDays] = useState(generateScheduleDays());
   const [selectedDayIndex, setSelectedDayIndex] = useState(2); // Index 2 is today (middle of the array)
   const [completedTreatments, setCompletedTreatments] = useState<Set<string>>(new Set());
@@ -140,8 +139,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment, shouldRe
         setLoading(true);
         setError(null);
         
-        // Check if we should reload or use cached data
-        if (globalFetchData && !shouldReload) {
+        // Check if we already have cached data
+        if (globalFetchData) {
           console.log('✨ Using cached treatment data');
           const data = globalFetchData;
           
@@ -174,15 +173,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment, shouldRe
           return;
         }
         
-        // If shouldReload is true, clear the cache and fetch fresh data
-        if (shouldReload) {
-          console.log('🔄 Reloading treatments from server...');
-          globalFetchPromise = null;
-          globalFetchData = null;
-        }
-        
         // Check if a fetch is already in progress
-        if (globalFetchPromise && !shouldReload) {
+        if (globalFetchPromise) {
           console.log('⏳ Waiting for existing API call to complete...');
           const data = await globalFetchPromise;
           
@@ -275,14 +267,20 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment, shouldRe
     };
 
     fetchTreatments();
-  }, [shouldReload]);
+  }, [refreshKey]);
 
-  // Notify parent when reload is complete
+  // Listen for treatment changes and force a reload when needed
   useEffect(() => {
-    if (shouldReload && !loading && onReloadComplete) {
-      onReloadComplete();
-    }
-  }, [shouldReload, loading, onReloadComplete]);
+    const handler = (e: CustomEvent) => {
+      // Clear global cache so next fetch returns fresh data
+      globalFetchData = null;
+      globalFetchPromise = null;
+      setRefreshKey(k => k + 1);
+    };
+    const { onEvent } = require('@/src/lib/eventBus');
+    const off = onEvent('treatments:changed', handler);
+    return () => off();
+  }, []);
 
   // Fetch daily events when selected day changes
   useEffect(() => {
@@ -587,11 +585,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment, shouldRe
       }
       
       setCompletedTreatments(newCompletedTreatments);
-      
-      // Notify parent that treatment status changed
-      if (onTreatmentStatusChanged) {
-        onTreatmentStatusChanged();
-      }
+      // Notify other screens that treatments changed so they can refresh
+      emitEvent('treatments:changed', { key: confirmDialog.treatmentKey });
       
     } catch (error) {
       console.error('Error updating treatment:', error);

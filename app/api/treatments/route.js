@@ -1,8 +1,5 @@
 import { updateAnimalInList,addGeneralTreatmentColumnWithValidations, renameAnimalTreatmentSheet } from '@/src/lib/sheets'; // ...existing code...
 
-export const runtime = 'nodejs';
-export const maxDuration = 30;
-
 export async function PUT(request) {
   try {
 

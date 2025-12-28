@@ -20,7 +20,6 @@ export default function App() {
   const [selectedAnimalType, setSelectedAnimalType] = useState<string>("");
   const [selectedAnimalName, setSelectedAnimalName] = useState<string>("");
   const [previousScreen, setPreviousScreen] = useState<Screen>("dashboard");
-  const [shouldReloadTreatments, setShouldReloadTreatments] = useState<boolean>(false);
   
   const rtlStyle: React.CSSProperties = {
     direction: 'rtl',
@@ -86,17 +85,11 @@ export default function App() {
   };
 
   const handleBackFromAddTreatment = () => {
-    setShouldReloadTreatments(true);
     setCurrentScreen("profile");
   };
 
   const handleBackFromAddTreatmentSchedule = () => {
-    setShouldReloadTreatments(true);
     setCurrentScreen(previousScreen);
-  };
-
-  const handleTreatmentStatusChanged = () => {
-    setShouldReloadTreatments(true);
   };
 
   if (currentScreen === "login") {
@@ -130,9 +123,6 @@ export default function App() {
         <DailySchedule 
           onSelectAnimal={handleSelectAnimal}
           onAddTreatment={handleAddTreatmentFromSchedule}
-          shouldReload={shouldReloadTreatments}
-          onReloadComplete={() => setShouldReloadTreatments(false)}
-          onTreatmentStatusChanged={handleTreatmentStatusChanged}
         />
       )}
 
@@ -141,9 +131,6 @@ export default function App() {
           onSelectAnimal={handleSelectAnimal}
           onAddTreatment={handleAddTreatmentFromSchedule}
           email={userEmail}
-          shouldReload={shouldReloadTreatments}
-          onReloadComplete={() => setShouldReloadTreatments(false)}
-          onTreatmentStatusChanged={handleTreatmentStatusChanged}
         />
       )}
 

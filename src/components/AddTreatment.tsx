@@ -8,6 +8,7 @@ import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { ArrowRight, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { emitEvent } from '@/src/lib/eventBus';
 import { API_ENDPOINTS } from "../config/api";
 import { cn } from "./ui/utils";
 
@@ -308,7 +309,8 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
           throw new Error(err.error || `HTTP ${res.status}`);
         }
 
-        //const animalName = animals.find((a: Animal) => a.id.toString() === selectedAnimal)?.name;
+        // Notify other parts of the app that treatments changed so they can reload
+        emitEvent('treatments:changed', { animal: selectedAnimal });
         toast.success(`הטיפולים עבור ${selectedAnimal} נשמרו בהצלחה`);
         setTimeout(() => onBack(), 100);
       } catch (err) {

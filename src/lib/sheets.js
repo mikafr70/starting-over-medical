@@ -786,7 +786,7 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
       }
 
       if (row.noon === 'TRUE' || row.noon === 'FALSE') {
-        //console.log('Adding noon checkbox validation at row:', startRow);
+        console.log('Adding noon checkbox validation at row:', startRow);
         validationRequests.push({
           setDataValidation: {
             range: {
@@ -2398,10 +2398,10 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
       console.log('TEMPORARY MODE: Fetching only files edited today:', today.toISOString());
     } else {
       */
-      // Fetch only files edited in the last 24 hours for performance
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      startDate = yesterday;
+      // Original behavior: two weeks ago
+      const twoWeeksAgo = new Date();
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);// - 14); !!!!!!!!!!!!!!!!!!!!!!!!!!
+      startDate = twoWeeksAgo;
     //}
     
     const startDateISO = startDate.toISOString();
@@ -2419,25 +2419,14 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     
     console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
     
-    // Process ALL files in parallel for maximum speed - no batching delays
-    const results = await Promise.all(
-      tempResponse.data.files.map(async (file) => {
-        try {
-          const { hasTreatment, treatmentTimes } = await hasTreatmentToday(file.id, dateStr);
-          return { file, hasTreatment, treatmentTimes };
-        } catch (error) {
-          console.error(`Error checking treatment for ${file.name}:`, error.message);
-          return { file, hasTreatment: false, treatmentTimes: [] };
-        }
-      })
-    );
-    
-    for (const { file, hasTreatment, treatmentTimes } of results) {
+    for (const file of tempResponse.data.files) {
+      const { hasTreatment,treatmentTimes} = await hasTreatmentToday(file.id, dateStr);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       if (hasTreatment) {
         filesWithTreatmentsToday.push(file.name, treatmentTimes);
       }
     }
-    
     return filesWithTreatmentsToday;
   } catch (error) {
     console.error('Error in getRecentlyEditedFilesInFolder:', error);
