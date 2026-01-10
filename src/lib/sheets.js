@@ -4,6 +4,7 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { google } from 'googleapis';
 import { getUserOAuthClient } from './googleAuth';
+import { start } from 'repl';
 
 // Initialize configuration from sheet on module load
 let configLoaded = false;
@@ -319,14 +320,19 @@ async function findSpreadsheetInFolder(animalType, animalName) {
     
     //console.log(`Searching for animal: "${animalName}", extracted name: "${nameOnly}"`);
     
-    // Fetch all files with pagination
+    // Calculate date 30 days ago in RFC 3339 format
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 7);
+    const dateFilter = thirtyDaysAgo.toISOString();
+    
+    // Fetch all files with pagination - only files modified in last 30 days
     let allFiles = [];
     let pageToken = null;
     
     do {
       const response = await drive.files.list({
-        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
-        fields: 'nextPageToken, files(id, name)',
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and modifiedTime > '${dateFilter}'`,
+        fields: 'nextPageToken, files(id, name, modifiedTime)',
         spaces: 'drive',
         pageSize: 1000, // Max allowed by API
         pageToken: pageToken
@@ -334,18 +340,17 @@ async function findSpreadsheetInFolder(animalType, animalName) {
       
       allFiles = allFiles.concat(response.data.files || []);
       pageToken = response.data.nextPageToken;
-    } while (pageToken);
-    
-    console.log(`Found ${allFiles.length} total files in folder`);
-    
-    // Filter to find exact match: filename format is "עותק של [name] [ID]"
-    const exactMatch = allFiles.find(file => {
+    } while (pageToken);   
+      console.log(`Found ${allFiles[0]} total files in folder`);
+ 
+      // Filter to find exact match: filename format is "עותק של [name] [ID]"
+      const exactMatch = allFiles.find(file => {
       const nameWithoutExtension = file.name.replace(/\..*$/, ''); // Remove extension
       // Remove "עותק של " prefix if present
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
       // Extract the name part (first word after removing prefix)
       const fileNameOnly = nameWithoutPrefix.split(' ')[0];
-      
+      console.log(`Comparing file name: "${fileNameOnly}" with animal name: "${nameOnly}"`);
       // Match if the name part matches exactly
       const isMatch = fileNameOnly === nameOnly;
       if (isMatch) {
@@ -366,6 +371,111 @@ async function findSpreadsheetInFolder(animalType, animalName) {
     return null;
   }
 }
+
+
+/*--------------------------------------------------
+find animal names for the caregiver
+---------------------------------------------------*/
+async function getAnimalNamesForCaregiver(animalType, caregiverName) {
+  await ensureConfigLoaded();
+  const animalTypeKey = await getAnimalTypeKey(animalType);
+  const animalNames = [];
+  try {
+    //go through the animal list and find the specific caregiver's animals, split by commas
+
+    const doc = await getDoc(ANIMAL_TREATMENT_SHEETS()[animalTypeKey].sheetId);
+    const sheet = doc.sheetsByIndex[0];
+    const rows = await sheet.getRows();
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    const headerMap = {};
+    headers.forEach((name, idx) => {
+      headerMap[name.trim()] = idx;
+    });
+    for (const row of rows) {
+      const caregiversField = row._rawData?.[headerMap['מטפל']] || '';
+      const caregivers = caregiversField.split(',').map(name => name.trim());
+      if (caregivers.includes(caregiverName)) {
+        const animalName = row._rawData?.[headerMap['שם']] || '';
+        animalNames.push(animalName);
+      }
+    }
+    console.log(`Found ${animalNames.length} animals for caregiver ${caregiverName} in type ${animalType}`);
+  } catch (error) {
+    console.error(`Error fetching animal names for caregiver ${caregiverName} in type ${animalType}:`, error);
+  }
+    return animalNames;
+}
+    
+
+
+
+
+/*--------------------------------------------------
+find sheets for caregiver's animals
+---------------------------------------------------*/
+async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
+  await ensureConfigLoaded();
+  const drive = getDriveClient();
+  const animalTypeKey = await getAnimalTypeKey(animalType);
+  const folderId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId;
+  const caregiverAnimals = await getAnimalNamesForCaregiver(animalType, caregiverName);
+  try {
+    // Extract just the name part from animalName (e.g., "קשיו" from "קשיו 939000007563363")
+
+    //console.log(`Searching for animal: "${animalName}", extracted name: "${nameOnly}"`);
+    
+    // Calculate date 30 days ago in RFC 3339 format
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 7);
+    const dateFilter = thirtyDaysAgo.toISOString();
+    
+    // Fetch all files with pagination - only files modified in last 30 days
+    let allFiles = [];
+    let pageToken = null;
+    const matchedFiles = [];
+    
+    do {
+      const response = await drive.files.list({
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and modifiedTime > '${dateFilter}'`,
+        fields: 'nextPageToken, files(id, name, modifiedTime)',
+        spaces: 'drive',
+        pageSize: 1000, // Max allowed by API
+        pageToken: pageToken
+      });
+      
+      allFiles = allFiles.concat(response.data.files || []);
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+    
+    console.log(`Found ${allFiles.length} total files in folder`);
+    for (const animal of caregiverAnimals) { 
+       for (const file of allFiles) {
+        {
+          // use regx to remove numbers from the end of the name
+          const nameOnly = file.name.replace(/\s+\d{15}$/, '').trim();
+          // Match if the name part matches exactly
+          const isMatch = nameOnly === animal;
+          //console.log(`Comparing file name: "${nameOnly}" with caregiver animal name: "${animal}"`);
+          if (isMatch) {
+            console.log(`  ✓ MATCH FOUND: "${file.name}" for caregiver animal: "${animal}"`);
+            // store matched file id
+            matchedFiles.push({ animalName: animal, sheetId: file.id });
+          }
+        }
+      }   
+    };
+    if (matchedFiles.length === 0) {  
+      console.log(`No treatment sheets found for caregiver ${caregiverName} in animal type ${animalType}`);
+      return [];
+    }
+    return matchedFiles;
+  } catch (error) {
+    console.error('Error searching Drive folder:', error);
+    return null;
+  }
+}
+
 
 
 
@@ -661,9 +771,9 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
 /*--------------------------------------------------
   Add treatments at the top of sheet
 ---------------------------------------------------*/
-export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCaregiver = false) {
+export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCaregiver = false, isPersonalCaregiver = false) {
   await ensureConfigLoaded();
-  console.log(`>>> addTreatmentAtTop for spreadsheetId: ${spreadsheetId}, isGeneralCaregiver: ${isGeneralCaregiver}`);
+  console.log(`>>> addTreatmentAtTop for spreadsheetId: ${spreadsheetId}, isGeneralCaregiver: ${isGeneralCaregiver}, isPersonalCaregiver: ${isPersonalCaregiver}`);
   const rowsToAdd = Array.isArray(rowData) ? rowData : [rowData];
   try {
     if (!spreadsheetId) throw new Error('spreadsheetId is required');
@@ -675,6 +785,7 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
     console.log(`rowData - ${JSON.stringify(rowData[0])}`);
     console.log(`checkboxes values: morning - ${rowData[0].morning} , noon - ${rowData[0].noon} , evening - ${rowData[0].evening}`);
     console.log(`isGeneralCaregiver flag: ${isGeneralCaregiver}`);
+    console.log(`isPersonalCaregiver flag: ${isPersonalCaregiver}`);
 
     const auth = getSheetsAuth();
     const sheetsApi = google.sheets({ version: 'v4', auth });
@@ -705,6 +816,7 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
       const noon = rowData.noon || '';
       const evening = rowData.evening || '';
       const generalTreatment = isGeneralCaregiver ? 'FALSE' : ''; // Set to FALSE if general caregiver selected, empty otherwise
+      const personalTreatment = isPersonalCaregiver ? 'FALSE' : ''; // Set to FALSE if personal caregiver selected, empty otherwise
       const treatment = rowData.treatment || '';
       const dosage = rowData.dosage || '';
       const bodyPart = rowData.bodyPart || rowData['body part'] || '';
@@ -713,19 +825,19 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
       const caseField = rowData.case || '';
       const notes = rowData.notes || '';
 
-      return [date, day, morning, noon, evening, generalTreatment, treatment, dosage, bodyPart, duration, location, caseField, notes];
+      return [date, day, morning, noon, evening, generalTreatment, personalTreatment, treatment, dosage, bodyPart, duration, location, caseField, notes];
     });
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheet.title}!A2:M${1 + rowsToAdd.length}`,
+      range: `${sheet.title}!A2:N${1 + rowsToAdd.length}`,
       valueInputOption: 'RAW',
       resource: { values }
     });
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheet.title}!A2:M${1 + rowsToAdd.length}`,
+      range: `${sheet.title}!A2:N${1 + rowsToAdd.length}`,
       valueInputOption: 'USER_ENTERED',
       resource: { values },
     });
@@ -735,8 +847,8 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
     for (let i = 0; i < rowsToAdd.length; i++) {
       const startRow = 1 + i;
       
-      // Clear validations for morning, noon, evening, and general treatment columns
-      for (let col = 2; col <= 5; col++) {
+      // Clear validations for morning, noon, evening, general treatment, and personal treatment columns
+      for (let col = 2; col <= 7; col++) {
         clearValidationRequests.push({
           setDataValidation: {
             range: {
@@ -842,7 +954,29 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
           }
         });
       }
+      // Add checkbox validation for personal treatment column (column G, index 6) if personal caregiver selected
+    if (isPersonalCaregiver) {
+        console.log('Adding personal treatment checkbox validation at row:', startRow);
+        validationRequests.push({
+          setDataValidation: {
+            range: {
+              sheetId,
+              startRowIndex: startRow,
+              endRowIndex: startRow + 1,
+              startColumnIndex: 6,
+              endColumnIndex: 7
+            },
+            rule: {
+              condition: { type: 'BOOLEAN' },
+              showCustomUi: false // Start as unchecked
+            }
+          }
+        });
+      }
+    
     }
+
+    // Execute validation requests
 
     if (validationRequests.length > 0) {
       await sheetsApi.spreadsheets.batchUpdate({
@@ -1535,6 +1669,75 @@ export async function getCaregiverNameFromSheet(email) {
 }
 
 /*--------------------------------------------------  
+  Get caregiver's treated animal types from sheet
+---------------------------------------------------*/ 
+export async function getCaregiverTreatedTypes(caregiverName) {
+  try {
+    console.log('>>> Retrieve treated animal types for caregiver:', caregiverName);
+    await ensureConfigLoaded();
+    const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
+    if (!spreadsheetId) throw new Error('Could not find caregiver sheet');
+    
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0]; 
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    
+    const caregiverColIndex = headers.findIndex(h => h && h.trim() === 'מטפל');
+    const typesColIndex = headers.findIndex(h => h && h.trim() === 'סוגים לטיפול');
+    
+    if (caregiverColIndex === -1) {
+      throw new Error(`Could not find 'מטפל' header in sheet ${spreadsheetId}`);
+    }
+    if (typesColIndex === -1) {
+      console.warn(`Could not find 'סוגים לטיפול' header in sheet ${spreadsheetId}, returning all types`);
+      return Object.keys(ANIMAL_TREATMENT_SHEETS());
+    }
+    
+    const rows = await sheet.getRows();
+    for (const row of rows) {
+      const rowCaregiverName = row._rawData?.[caregiverColIndex];
+      if (rowCaregiverName && rowCaregiverName.trim() === caregiverName.trim()) {
+        const typesStr = row._rawData?.[typesColIndex] || '';
+        if (!typesStr) {
+          console.log(`<<< No treated types specified for ${caregiverName}, returning all types`);
+          return Object.keys(ANIMAL_TREATMENT_SHEETS());
+        }
+        
+        // Parse the types string - could be comma-separated Hebrew names
+        const typesList = typesStr.split(',').map(t => t.trim()).filter(t => t);
+        
+        // Map Hebrew display names to English keys
+        const sheets = ANIMAL_TREATMENT_SHEETS();
+        const animalTypeKeys = [];
+        
+        for (const typeName of typesList) {
+          // Try to find matching type by Hebrew display name
+          const entry = Object.entries(sheets).find(([key, value]) => 
+            value.displayName === typeName || key === typeName
+          );
+          if (entry) {
+            animalTypeKeys.push(entry[0]);
+          } else {
+            console.warn(`Could not find animal type for: ${typeName}`);
+          }
+        }
+        
+        console.log(`<<< Found treated types for ${caregiverName}:`, animalTypeKeys);
+        return animalTypeKeys.length > 0 ? animalTypeKeys : Object.keys(ANIMAL_TREATMENT_SHEETS());
+      }
+    }
+    
+    console.log(`<<< Caregiver ${caregiverName} not found, returning all types`);
+    return Object.keys(ANIMAL_TREATMENT_SHEETS());
+  } catch (error) {
+    console.error('Error in getCaregiverTreatedTypes:', error);
+    // Return all types on error to avoid breaking functionality
+    return Object.keys(ANIMAL_TREATMENT_SHEETS());
+  }
+}
+
+/*--------------------------------------------------  
   Authenticate caregiver with email and password
 ---------------------------------------------------*/ 
 export async function authenticateCaregiver(email, password) {
@@ -1618,142 +1821,101 @@ export async function getAllCaregivers() {
 /*--------------------------------------------------
   Get animals and optionally general treatments for caregiver in ONE pass
 ---------------------------------------------------*/
-export async function getAnimalsAndTreatmentsForCaregiver(caregiverName, includeGeneralTreatments = false) {
+export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName, includeGeneralTreatments = true) {
   try {
     await ensureConfigLoaded();
-    console.log(`>>> getAnimalsAndTreatmentsForCaregiver for caregiver: ${caregiverName}, includeGeneralTreatments: ${includeGeneralTreatments}`);
+    console.log(`>>> getAnimalsForCaregiverWithTreatementsToday for caregiver: ${caregiverName}, includeGeneralTreatments: ${includeGeneralTreatments}`);
     const todayDate = new Date(); 
     const todayStr = `${todayDate.getDate()}/${todayDate.getMonth() + 1}/${todayDate.getFullYear()}`;
-    const allAssignedAnimals = [];
+    const allPersonalTreatments = [];
     const allGeneralTreatments = [];
     const sheets = ANIMAL_TREATMENT_SHEETS();
 
-    for (const animalType of Object.keys(sheets)) {
+    // Get the animal types this caregiver treats
+    const treatedTypes = await getCaregiverTreatedTypes(caregiverName);
+    console.log(`Caregiver ${caregiverName} treats types:`, treatedTypes);
+
+    for (const animalType of treatedTypes) {
       try {
         console.log(`Processing animal type: ${animalType}`);
 
         // Add timeout to prevent hanging
-        const animalsPromise = getAnimals(animalType);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout fetching animals')), 15000)
-        );
+        //const animalsPromise = getAnimals(animalType);
+        //const timeoutPromise = new Promise((_, reject) => 
+        //  setTimeout(() => reject(new Error('Timeout fetching animals')), 15000)
+        //);
         
-        const animals = await Promise.race([animalsPromise, timeoutPromise]);
+        //const animals = await Promise.race([animalsPromisse, timeoutPromise]);
         
-        const assignedAnimals = animals.filter(animal => {
-          const inTreatementsField = (animal.in_treatment || '').toString();  
-          const caregivers = inTreatementsField.split(',').map(name => name.trim());
-          return caregivers.includes(caregiverName);
-        });
-        
-        for (const animal of assignedAnimals) {
-          // Set basic animal info
-          animal.animalType = animalType;
-          animal.animalTypeHebrew = sheets[animalType].displayName;
-          animal.hasTreatmentToday = false;
-          animal.medicalCases = '';
-          animal.image = ''; // Default to empty
-          animal.isPersonalComplete = false;
-          animal.isPersonalIncomplete = false;
-          
-          const spreadsheetId = await findSpreadsheetInFolder(animalType, animal.name);
-          console.log(`Animal Name: ${animal.name}, Spreadsheet ID: ${spreadsheetId}`);
-          
-          if(spreadsheetId) {
-            // Get all treatment times with categorization
-            const { hasTreatment, treatmentTimes } = await hasTreatmentToday(spreadsheetId, todayStr, false);
-            
+        //const assignedAnimals = animals.filter(animal => {
+        //  const inTreatementsField = (animal.in_treatment || '').toString();  
+        //  const caregivers = inTreatementsField.split(',').map(name => name.trim());
+        //  return caregivers.includes(caregiverName);
+        //});
+        const matchedFiles = await findSpreadsheetsForCaregiverInFolder(animalType, caregiverName);                 
+        for (const matchedFile of matchedFiles) {
+           // Set basic animal infos
+            const image  = '';
+            console.log(`Found assigned animal: ${matchedFile.animalName} (Sheet ID: ${matchedFile.sheetId})`);
+            const { hasTreatment, treatmentTimes, animalImage } = await hasTreatmentToday(matchedFile.sheetId, todayStr, !includeGeneralTreatments);
+
+            console.log(`hasTreatment=${hasTreatment}, treatmentTimes count=${treatmentTimes.length}`);
+            if (treatmentTimes.length > 0) {
+              console.log('treatmentTimes:', JSON.stringify(treatmentTimes, null, 2));
+            }
+
             if(hasTreatment) {
-              // Categorize treatments:
-              // Personal complete: isPersonal=true, isCompleted=true
-              // Personal incomplete: would be if animal has no rows today
-              // General complete: isGeneral=true, isCompleted=true
-              // General incomplete: isGeneral=true, isCompleted=false
-              
-              const personalCompleteTreatments = treatmentTimes.filter(t => t.isPersonal === true && t.isCompleted === true);
-              const generalCompleteTreatments = treatmentTimes.filter(t => t.isGeneral === true && t.isCompleted === true);
-              const generalIncompleteTreatments = treatmentTimes.filter(t => t.isGeneral === true && t.isCompleted === false);
-              
-              // Set flags
-              if (personalCompleteTreatments.length > 0) {
-                animal.isPersonalComplete = true;
-                animal.medicalCases = [...new Set(personalCompleteTreatments.map(t => t.medicalCase))].join(', ');
-                console.log(`Animal: ${animal.name} has personal complete treatments. Cases: ${animal.medicalCases}`);
-              }
-              
-              // Collect general treatments for the separate general section
-              if (includeGeneralTreatments) {
-                // General complete treatments
-                generalCompleteTreatments.forEach(t => {
+              for (const treatmentTime of treatmentTimes) {
+                console.log(`Processing treatment: isPersonal=${treatmentTime.isPersonal}, isGeneral=${treatmentTime.isGeneral}`);
+                if (treatmentTime.isPersonal === true) {
+                  allPersonalTreatments.push({
+                    animalName: matchedFile.animalName,
+                    animalType: sheets[animalType].displayName,
+                    animalTypeKey: animalType,  
+                    treatment: treatmentTime.treatment || '',
+                    medicalCase: treatmentTime.medicalCase,
+                    dosage: treatmentTime.dosage || '',
+                    date: todayStr,
+                    image: animalImage || '',
+                    isCompleted: treatmentTime.isCompleted
+                  });
+                }
+                if(treatmentTime.isGeneral === true) {
                   allGeneralTreatments.push({
-                    animalName: animal.name,
+                    animalName: matchedFile.animalName, 
                     animalType: sheets[animalType].displayName,
                     animalTypeKey: animalType,
-                    treatment: t.treatment || '',
-                    medicalCase: t.medicalCase,
-                    dosage: t.dosage || '',
+                    treatment: treatmentTime.treatment || '',
+                    medicalCase: treatmentTime.medicalCase,
+                    dosage: treatmentTime.dosage || '',
                     date: todayStr,
-                    image: animal.image || '',
-                    isCompleted: true
+                    image: animalImage || '',
+                    isCompleted: treatmentTime.isCompleted
                   });
-                });
-                
-                // General incomplete treatments
-                generalIncompleteTreatments.forEach(t => {
-                  allGeneralTreatments.push({
-                    animalName: animal.name,
-                    animalType: sheets[animalType].displayName,
-                    animalTypeKey: animalType,
-                    treatment: t.treatment || '',
-                    medicalCase: t.medicalCase,
-                    dosage: t.dosage || '',
-                    date: todayStr,
-                    image: animal.image || '',
-                    isCompleted: false
-                  });
-                });
+                }
               }
-            } else {
-              // Case 2: No row for today but animal is assigned = show as incomplete under personal
-              animal.isPersonalIncomplete = true;
-              console.log(`Animal: ${animal.name} has no treatments today - showing as personal incomplete`);
+            } 
+            else {
+              console.log(`No treatment sheet found for animal name: ${matchedFile.animalName}`);
             }
-          } else {
-            console.log(`No treatment sheet found for animal name: ${animal.name}`);
-            // No sheet = show as personal incomplete
-            animal.isPersonalIncomplete = true;
           }
-          
-          allAssignedAnimals.push(animal);
         }
-        
-        // Fetch photos in parallel for all assigned animals of this type
-        if (assignedAnimals.length > 0) {
-          const photoPromises = assignedAnimals.map(async (animal) => {
-            try {
-              const photo = await getAnimalPhoto(animalType, animal.name);
-              animal.image = photo || '';
-            } catch (error) {
-              animal.image = '';
-            }
-          });
-          await Promise.all(photoPromises);
+        catch (error) {
+          console.error(`Error processing animal type ${animalType}:`, error);
         }
-        
-        console.log(`Found ${assignedAnimals.length} assigned animals for caregiver ${caregiverName} in type ${animalType}`);
-      } catch (error) {
-        console.error(`Error processing animal type ${animalType}:`, error);
       }
-    }
-    
-    if (includeGeneralTreatments) {
-      console.log(`Total general treatments for today: ${allGeneralTreatments.length}`);
-      return { animals: allAssignedAnimals, generalTreatments: allGeneralTreatments };
-    }
-    
-    return { animals: allAssignedAnimals };
-  } catch (error) {
-    console.error('Error in getAnimalsAndTreatmentsForCaregiver:', error);
+        
+      if (includeGeneralTreatments) {
+        console.log(`Total personal treatments for today: ${allPersonalTreatments.length}`);
+        console.log(`Total general treatments for today: ${allGeneralTreatments.length}`);
+        return { allPersonalTreatments, allGeneralTreatments };
+      }
+      else {
+        console.log(`Total personal treatments for today: ${allPersonalTreatments.length}`);
+        return { allPersonalTreatments };
+      }
+    } catch (error) {
+      console.error('Error in getAnimalsForCaregiverWithTreatementsToday:', error);
     throw error;
   }
 }
@@ -1761,10 +1923,10 @@ export async function getAnimalsAndTreatmentsForCaregiver(caregiverName, include
 /*--------------------------------------------------
   Get animals with treatments for caregiver (LEGACY - use getAnimalsAndTreatmentsForCaregiver instead)
 ---------------------------------------------------*/
-export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) {
-  const result = await getAnimalsAndTreatmentsForCaregiver(caregiverName, false);
-  return result.animals;
-}
+//export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName) {
+////  const result = await getAnimalsAndTreatmentsForCaregiver(caregiverName, false);
+//  return result.animals;
+//}
 
 /*--------------------------------------------------
   Get all general treatments (checkbox = TRUE) for caregiver's animals (LEGACY)
@@ -1853,6 +2015,43 @@ export async function getGeneralTreatmentsForCaregiver(caregiverName) {
 // Check if sheet has treatment today
 // Cache for in-flight hasTreatmentToday calls
 const treatmentCheckCache = new Map();
+
+//--------------------------------------------------
+// Read rows in chunks from Google Sheets
+//---------------------------------------------------
+function colToA1(colIndex1Based) {
+  let n = colIndex1Based;
+  let s = "";
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+async function getAnimalImageFromDoc(doc) {
+  try {
+    console.log('>>> getAnimalImageFromDoc');
+
+    // Find or create Photo sheet
+    let photoSheet = doc.sheetsByTitle['Photo'];
+    if (!photoSheet) {
+      console.log('No Photo sheet found');
+      return null;
+    }
+
+    await photoSheet.loadCells('A1:A2');
+    const cell = photoSheet.getCell(1, 0); // Row 2, Column A (0-indexed)
+    
+    return cell.value || null;
+  } catch (error) {
+    console.error('Error in getAnimalImageFromDoc:', error);
+    return null;
+  }
+}
+
+
 /*--------------------------------------------------
   Check if sheet has treatment today
 ---------------------------------------------------*/
@@ -1864,155 +2063,217 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
   if (!sheetId) throw new Error('sheetId is required');  
   const doc = await getDoc(sheetId);  
   const sheet = doc.sheetsByIndex[0];  
-  const rows = await sheet.getRows(); 
-    
-  console.log(`Got ${rows.length} rows for treatment check`);
-    
-  // Check if we have any rows
-  if (rows.length === 0) {
-    const result = { hasTreatment: false, treatmentTimes: [] };
-    return result;
-  }
-    
+  const sheetName = sheet.title;
+  
+  const animalImage = await getAnimalImageFromDoc(doc);
+
+  await sheet.loadHeaderRow();
+  const headers = sheet.headerValues;
   // Build header map from the sheet's header values
   const headerMap = {};
-  if (sheet.headerValues) {
-    sheet.headerValues.forEach((header, index) => {
+  if (headers) {
+    headers.forEach((header, index) => {
       if (header) headerMap[header.trim()] = index;
     });
   }
+  
+  console.log('Headers:', headers);
+  console.log('HeaderMap:', headerMap);
   
   // Column indices (fallback if header mapping doesn't work)
   const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
   const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
   const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
   const generalTreatmentCol = headerMap['טיפול כללי'] !== undefined ? headerMap['טיפול כללי'] : 5;
-  const treatmentCol = headerMap['טיפול'] !== undefined ? headerMap['טיפול'] : 6;
-  const dosageCol = headerMap['מינון'] !== undefined ? headerMap['מינון'] : 7;
-  const caseCol = headerMap['סיבת טיפול'] !== undefined ? headerMap['סיבת טיפול'] : 10;
+  const personalTreatmentCol = headerMap['טיפול אישי'] !== undefined ? headerMap['טיפול אישי'] : 6;
+  const treatmentCol = headerMap['טיפול'] !== undefined ? headerMap['טיפול'] : 7;
+  const dosageCol = headerMap['מינון'] !== undefined ? headerMap['מינון'] : 8;
+  const caseCol = headerMap['סיבת טיפול'] !== undefined ? headerMap['סיבת טיפול'] : 11;
+  
+  console.log(`Column indices: morning=${morningCol}, noon=${noonCol}, evening=${eveningCol}, general=${generalTreatmentCol}, personal=${personalTreatmentCol}, treatment=${treatmentCol}, dosage=${dosageCol}, case=${caseCol}`);
   
   try {  
-    for(const row of rows) {
-      const stringDate = row._rawData?.[0];
-      if(!stringDate || !todayStr) continue;
-      
-      const parsedRowDate = parseDMY(stringDate);
-      const parsedTodayDate = parseDMY(todayStr);
-      
-      if(parsedRowDate === parsedTodayDate) {
-        console.log(`✓ Found treatment for today: ${todayStr} in row date: ${stringDate}`);
-        hasTreatment = true;
-        console.log('Row raw data:', row._rawData);
+    // Get row one by one to avoid memory issues
+    // When the date is earlier than today, we can stop checking further
+    const parsedTodayDate = parseDMY(todayStr);
+    const startCol = 1;
+    const endCol = headers.length; 
+    const startRow = 2; 
+    const endRow = sheet.rowCount; 
+    const chunkSize = 20; // Number of rows to fetch per API call
+    const auth = getSheetsAuth();
+    const sheetAPI = google.sheets({ version: 'v4', auth });
+
+    // Get rows one at a time using the sheet API
+
+    const startA = colToA1(startCol);
+    const endA = colToA1(endCol);
+    outerLoop:
+    for (let r = startRow; r <= endRow; r += chunkSize) {
+      const rEnd = Math.min(endRow, r + chunkSize - 1);
+      const range = `${sheetName}!${startA}${r}:${endA}${rEnd}`;
+
+      const resp = await sheetAPI.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range,
+        majorDimension: "ROWS",
+      });
+      for (let i = 0; i < (resp.data.values ? resp.data.values.length : 0); i++) {
+        const rowValues = resp.data.values[i];
+        const row = resp.data.values ? { _rawData: rowValues } : null;
+        if (!row) continue;
+        console.log(`Fetched rows ${r} to ${rEnd}, got ${resp.data.values ? resp.data.values.length : 0} rows`);
+        const values = resp.data.values ?? [];
+        const stringDate = rowValues[0];
+        const parsedRowDate = parseDMY(stringDate);
         
-        const morningValue = row._rawData?.[morningCol];
-        const noonValue = row._rawData?.[noonCol];
-        const eveningValue = row._rawData?.[eveningCol];
-        const generalTreatmentValue = row._rawData?.[generalTreatmentCol];
-        const medicalCase = row._rawData?.[caseCol] || 'ללא תיאור';
-        const treatment = row._rawData?.[treatmentCol] || '';
-        const dosage = row._rawData?.[dosageCol] || '';
-        
-        // If general treatment checkbox is checked (TRUE), skip this entire row
-        const isGeneralTreatmentChecked =  (generalTreatmentValue === true || generalTreatmentValue === 'TRUE');
-        
-        if (isGeneralTreatmentChecked && excludeCheckedGeneralTreatments) {
-          // Skip this row entirely if general treatment is checked and we're excluding them
-          continue;
+        if (parsedRowDate < parsedTodayDate)
+        {
+          break outerLoop; // Since rows are sorted by date descending, we can stop checking further
         }
+        if(!stringDate || !todayStr) continue;
         
-        // Check if time slots have any values (blank, true, or false)
-        const isMorningBlank = morningValue === '';
-        const isNoonBlank = noonValue === '';
-        const isEveningBlank = eveningValue === '';
         
-        // Check if any time slot has a value (TRUE or FALSE)
-        const hasTimeSlots = (morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') ||
-                            (noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') ||
-                            (eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE');
-        
-        // Categorize this row based on the logic:
-        if (hasTimeSlots) {
-          // Case 5: This row has time slots - ignore for personal treatment screen
-          // Check morning: false/FALSE = needs treatment (not completed), true/TRUE = completed
-          if(morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') {
-            treatmentTimes.push({ 
-              timeSlot: 'morning', 
-              medicalCase,
-              treatment,
-              dosage,
-              isCompleted: morningValue === true || morningValue === 'TRUE',
-              isGeneral: false,
-              isPersonal: false // Has time slots, so not shown in personal treatments
-            });
-          }
-          // Check noon
-          if(noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') {
-            treatmentTimes.push({ 
-              timeSlot: 'noon', 
-              medicalCase,
-              treatment,
-              dosage,
-              isCompleted: noonValue === true || noonValue === 'TRUE',
-              isGeneral: false,
-              isPersonal: false
-            });
-          }
-          // Check evening
-          if(eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE') {
-            treatmentTimes.push({ 
-              timeSlot: 'evening', 
-              medicalCase,
-              treatment,
-              dosage,
-              isCompleted: eveningValue === true || eveningValue === 'TRUE',
-              isGeneral: false,
-              isPersonal: false
-            });
-          }
-        } else {
-          // No time slots - categorize based on general checkbox state
-          // Check the exact state of the general treatment checkbox
-          const isGeneralEmpty = generalTreatmentValue === '' || generalTreatmentValue === undefined || generalTreatmentValue === null;
-          const isGeneralUnchecked = generalTreatmentValue === false || generalTreatmentValue === 'FALSE';
+        if(parsedRowDate === parsedTodayDate) {
+          console.log(`✓ Found treatment for today: ${todayStr} in row date: ${stringDate}`);
+          hasTreatment = true;
+          console.log('Row raw data:', row._rawData);
           
-          if (isGeneralTreatmentChecked) {
-            // Case 3: checked general checkbox & no timed slots = complete general treatment
-            treatmentTimes.push({ 
-              timeSlot: 'general', 
-              medicalCase,
-              treatment,
-              dosage,
-              isGeneral: true,
-              isCompleted: true,
-              isPersonal: false
-            });
-          } else if (isGeneralUnchecked) {
-            // Case 2: unchecked general checkbox & no timed slots = incomplete general treatment
-            treatmentTimes.push({ 
-              timeSlot: 'general', 
-              medicalCase,
-              treatment,
-              dosage,
-              isGeneral: true,
-              isCompleted: false,
-              isPersonal: false
-            });
-          } else if (isGeneralEmpty) {
-            // Case 1: no general checkbox & no timed slots = complete personal treatment
-            treatmentTimes.push({ 
-              timeSlot: 'personal', 
-              medicalCase,
-              treatment,
-              dosage,
-              isGeneral: false,
-              isCompleted: true,
-              isPersonal: true
-            });
+          const morningValue = rowValues[morningCol];
+          const noonValue = rowValues[noonCol];
+          const eveningValue = rowValues[eveningCol];
+          const generalTreatmentValue = rowValues[generalTreatmentCol];
+          const personalTreatmentValue = rowValues[personalTreatmentCol];
+          const medicalCase = rowValues[caseCol] || '';
+          const treatment = rowValues[treatmentCol] || '';
+          const dosage = rowValues[dosageCol] || '';
+          
+          console.log(`Values extracted: morning='${morningValue}', noon='${noonValue}', evening='${eveningValue}', general='${generalTreatmentValue}', personal='${personalTreatmentValue}', treatment='${treatment}'`);
+          console.log(`Column indices used: morningCol=${morningCol}, noonCol=${noonCol}, eveningCol=${eveningCol}, generalCol=${generalTreatmentCol}, personalCol=${personalTreatmentCol}`);
+          
+          // If general treatment checkbox is checked (TRUE), skip this entire row
+          const isGeneralTreatmentChecked =  (generalTreatmentValue === true || generalTreatmentValue === 'TRUE');
+          
+          if (isGeneralTreatmentChecked && excludeCheckedGeneralTreatments) {
+            // Skip this row entirely if general treatment is checked and we're excluding them
+            continue;
           }
+          
+          // Check if time slots have any values (blank, true, or false)
+          const isMorningBlank = morningValue === '';
+          const isNoonBlank = noonValue === '';
+          const isEveningBlank = eveningValue === '';
+          
+          // Check if any time slot has a value (TRUE or FALSE)
+          const hasTimeSlots = (morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') ||
+                              (noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') ||
+                              (eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE');
+          
+          // Check if personal or general checkboxes have values
+          const hasPersonalOrGeneralCheckbox = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE' || 
+                                                 personalTreatmentValue === false || personalTreatmentValue === 'FALSE' ||
+                                                 generalTreatmentValue === true || generalTreatmentValue === 'TRUE' ||
+                                                 generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
+          
+          // Categorize this row based on the logic:
+          // If personal or general checkbox is set, ignore time slots and use checkbox logic
+          if (hasPersonalOrGeneralCheckbox) {
+            // Personal/General checkbox treatment - ignore time slots
+            const isPersonalTreatmentChecked = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE');
+            const isPersonalTreatmentUnchecked = (personalTreatmentValue === false || personalTreatmentValue === 'FALSE');
+            const isGeneralUnchecked = (generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
+            
+            // Priority: Personal > General
+            if (isPersonalTreatmentChecked) {
+              // Personal treatment - checked = completed
+              treatmentTimes.push({ 
+                timeSlot: 'personal', 
+                medicalCase,
+                treatment,
+                dosage,
+                isGeneral: false,
+                isCompleted: true,
+                isPersonal: true
+              });
+            } else if (isPersonalTreatmentUnchecked) {
+              // Personal treatment - unchecked = incomplete
+              treatmentTimes.push({ 
+                timeSlot: 'personal', 
+                medicalCase,
+                treatment,
+                dosage,
+                isGeneral: false,
+                isCompleted: false,
+                isPersonal: true
+              });
+            } else if (isGeneralTreatmentChecked) {
+              // General treatment - checked = completed
+              treatmentTimes.push({ 
+                timeSlot: 'general', 
+                medicalCase,
+                treatment,
+                dosage,
+                isGeneral: true,
+                isCompleted: true,
+                isPersonal: false
+              });
+            } else if (isGeneralUnchecked) {
+              // General treatment - unchecked = incomplete
+              treatmentTimes.push({ 
+                timeSlot: 'general', 
+                medicalCase,
+                treatment,
+                dosage,
+                isGeneral: true,
+                isCompleted: false,
+                isPersonal: false
+              });
+            }
+          } else if (hasTimeSlots) {
+            // Case: This row has time slots and NO personal/general checkbox - use for daily schedule
+            // Check morning: false/FALSE = needs treatment (not completed), true/TRUE = completed
+            if(morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') {
+              treatmentTimes.push({ 
+                timeSlot: 'morning', 
+                medicalCase,
+                treatment,
+                dosage,
+                isCompleted: morningValue === true || morningValue === 'TRUE',
+                isGeneral: false,
+                isPersonal: false // Has time slots, so not shown in personal treatments
+              });
+            }
+            // Check noon
+            if(noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') {
+              treatmentTimes.push({ 
+                timeSlot: 'noon', 
+                medicalCase,
+                treatment,
+                dosage,
+                isCompleted: noonValue === true || noonValue === 'TRUE',
+                isGeneral: false,
+                isPersonal: false
+              });
+            }
+            // Check evening
+            if(eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE') {
+              treatmentTimes.push({ 
+                timeSlot: 'evening', 
+                medicalCase,
+                treatment,
+                dosage,
+                isCompleted: eveningValue === true || eveningValue === 'TRUE',
+                isGeneral: false,
+                isPersonal: false
+              });
+            }
+          }
+          // If both checkboxes AND time slots are empty, we don't add it to the list
         }
       }
     }
-    return { hasTreatment, treatmentTimes };
+
+    return { hasTreatment, treatmentTimes, animalImage };
   } catch (error) {
     console.error('Error in hasTreatmentToday:', error);
     return { hasTreatment: false, treatmentTimes: [] };
@@ -2177,6 +2438,168 @@ export async function markGeneralTreatmentIncomplete(animalType, animalName, dat
     return { success: true };
   } catch (error) {
     console.error('Error in markGeneralTreatmentIncomplete:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Mark personal treatment as complete
+---------------------------------------------------*/
+export async function markPersonalTreatmentComplete(animalType, animalName, dateStr) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>>> markPersonalTreatmentComplete for animal: ${animalName}, date: ${dateStr}`);
+    
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
+    if (!spreadsheetId) {
+      throw new Error(`Could not find treatment sheet for animal: ${animalName}`);
+    }
+    
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];
+    const rows = await sheet.getRows();
+    
+    // Build header map
+    const headerMap = {};
+    if (sheet.headerValues) {
+      sheet.headerValues.forEach((header, index) => {
+        if (header) headerMap[header.trim()] = index;
+      });
+    }
+    
+    const personalTreatmentCol = headerMap['טיפול אישי'] !== undefined ? headerMap['טיפול אישי'] : 6;
+    const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
+    const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
+    const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
+    
+    // Find the row with matching date and unchecked personal treatment
+    const parsedTargetDate = parseDMY(dateStr);
+    let rowFound = false;
+    
+    for (const row of rows) {
+      const rowDateStr = row._rawData?.[0];
+      const rowDate = parseDMY(rowDateStr);
+      
+      if (rowDate === parsedTargetDate) {
+        const personalTreatmentValue = row._rawData?.[personalTreatmentCol];
+        const morningValue = row._rawData?.[morningCol];
+        const noonValue = row._rawData?.[noonCol];
+        const eveningValue = row._rawData?.[eveningCol];
+        
+        // Check if this row has no time slots
+        const hasNoTimeSlots = 
+          (morningValue === '' || morningValue === null || morningValue === undefined) &&
+          (noonValue === '' || noonValue === null || noonValue === undefined) &&
+          (eveningValue === '' || eveningValue === null || eveningValue === undefined);
+        
+        // Check if personal checkbox is unchecked (FALSE)
+        const isPersonalUnchecked = personalTreatmentValue === false || personalTreatmentValue === 'FALSE';
+        
+        if (hasNoTimeSlots && isPersonalUnchecked) {
+          // Update this row: check the personal treatment checkbox
+          const rowIndex = row._rowNumber - 1; // Convert to 0-based index
+          const columnLetter = String.fromCharCode(65 + personalTreatmentCol); // Convert column index to letter
+          
+          await sheet.loadCells(`${columnLetter}${row._rowNumber}:${columnLetter}${row._rowNumber}`);
+          const cell = sheet.getCell(rowIndex, personalTreatmentCol);
+          cell.value = true;
+          
+          await sheet.saveUpdatedCells();
+          rowFound = true;
+          console.log(`✓ Marked personal treatment as complete for ${animalName} on ${dateStr}`);
+          break;
+        }
+      }
+    }
+    
+    if (!rowFound) {
+      throw new Error(`Could not find unchecked personal treatment row for ${animalName} on ${dateStr}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in markPersonalTreatmentComplete:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Mark personal treatment as incomplete
+---------------------------------------------------*/
+export async function markPersonalTreatmentIncomplete(animalType, animalName, dateStr) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>>> markPersonalTreatmentIncomplete for animal: ${animalName}, date: ${dateStr}`);
+    
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
+    if (!spreadsheetId) {
+      throw new Error(`Could not find treatment sheet for animal: ${animalName}`);
+    }
+    
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];
+    const rows = await sheet.getRows();
+    
+    // Build header map
+    const headerMap = {};
+    if (sheet.headerValues) {
+      sheet.headerValues.forEach((header, index) => {
+        if (header) headerMap[header.trim()] = index;
+      });
+    }
+    
+    const personalTreatmentCol = headerMap['טיפול אישי'] !== undefined ? headerMap['טיפול אישי'] : 6;
+    const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
+    const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
+    const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
+    
+    // Find the row with matching date and checked personal treatment
+    const parsedTargetDate = parseDMY(dateStr);
+    let rowFound = false;
+    
+    for (const row of rows) {
+      const rowDateStr = row._rawData?.[0];
+      const rowDate = parseDMY(rowDateStr);
+      
+      if (rowDate === parsedTargetDate) {
+        const personalTreatmentValue = row._rawData?.[personalTreatmentCol];
+        const morningValue = row._rawData?.[morningCol];
+        const noonValue = row._rawData?.[noonCol];
+        const eveningValue = row._rawData?.[eveningCol];
+        
+        // Check if this row has no time slots
+        const hasNoTimeSlots = 
+          (morningValue === '' || morningValue === null || morningValue === undefined) &&
+          (noonValue === '' || noonValue === null || noonValue === undefined) &&
+          (eveningValue === '' || eveningValue === null || eveningValue === undefined);
+        
+        // Check if personal checkbox is checked (TRUE)
+        const isPersonalChecked = personalTreatmentValue === true || personalTreatmentValue === 'TRUE';
+        
+        if (hasNoTimeSlots && isPersonalChecked) {
+          // Update this row: uncheck the personal treatment checkbox
+          const rowIndex = row._rowNumber - 1; // Convert to 0-based index
+          const columnLetter = String.fromCharCode(65 + personalTreatmentCol); // Convert column index to letter
+          
+          await sheet.loadCells(`${columnLetter}${row._rowNumber}:${columnLetter}${row._rowNumber}`);
+          const cell = sheet.getCell(rowIndex, personalTreatmentCol);
+          cell.value = false;
+          
+          await sheet.saveUpdatedCells();
+          rowFound = true;
+          console.log(`✓ Marked personal treatment as incomplete for ${animalName} on ${dateStr}`);
+          break;
+        }
+      }
+    }
+    
+    if (!rowFound) {
+      throw new Error(`Could not find checked personal treatment row for ${animalName} on ${dateStr}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in markPersonalTreatmentIncomplete:', error);
     throw error;
   }
 }
@@ -2939,38 +3362,6 @@ async function withSheetsRetry(fn, maxAttempts = 5) {
   }
 }
 
-/*--------------------------------------------------
-  Get animal photo from Photo sheet
----------------------------------------------------*/
-export async function getAnimalPhoto(animalType, animalName) {
-  try {
-    await ensureConfigLoaded();
-    console.log(`>> getAnimalPhoto for animal: ${animalName} of type: ${animalType}`);
-    
-    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
-    if (!spreadsheetId) {
-      console.log('No spreadsheet found for animal');
-      return null;
-    }
-
-    const doc = await getDoc(spreadsheetId);
-    
-    // Find or create Photo sheet
-    let photoSheet = doc.sheetsByTitle['Photo'];
-    if (!photoSheet) {
-      console.log('No Photo sheet found');
-      return null;
-    }
-
-    await photoSheet.loadCells('A1:A2');
-    const cell = photoSheet.getCell(1, 0); // Row 2, Column A (0-indexed)
-    
-    return cell.value || null;
-  } catch (error) {
-    console.error('Error in getAnimalPhoto:', error);
-    return null;
-  }
-}
 
 /*--------------------------------------------------
   Save animal photo to Photo sheet

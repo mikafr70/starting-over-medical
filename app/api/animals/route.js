@@ -1,4 +1,4 @@
-import { getAnimals, getAnimalsAndTreatmentsForCaregiver, ensureConfigLoaded, addAnimalToList, createAnimalTreatmentSheet } from '@/src/lib/sheets';
+import { getAnimals,getAnimalsForCaregiverWithTreatementsToday, ensureConfigLoaded, addAnimalToList, createAnimalTreatmentSheet } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -27,7 +27,7 @@ export async function GET(request) {
       const includeGeneral = includeGeneralTreatments === 'true';
       
       // Fetch animals and optionally general treatments in ONE pass
-      const result = await getAnimalsAndTreatmentsForCaregiver(caregiver, includeGeneral);
+      const result = await getAnimalsForCaregiverWithTreatementsToday(caregiver, includeGeneral);
       
       return new Response(JSON.stringify(result), { 
         status: 200, 

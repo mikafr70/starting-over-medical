@@ -73,8 +73,6 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
   const [addAnimalOpen, setAddAnimalOpen] = useState(false);
   const [animalActionOpen, setAnimalActionOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const isFetchingRef = useRef(false);
-  const lastEmailRef = useRef<string>("");
 
   useEffect(() => {
     async function fetchCaregiver() {
@@ -83,19 +81,6 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
         return;
       }
 
-      // Prevent duplicate fetches
-      if (isFetchingRef.current) {
-        return;
-      }
-      
-      // If we already fetched for this email, skip the fetch
-      if (lastEmailRef.current === email) {
-        setIsLoading(false);
-        return;
-      }
-
-      isFetchingRef.current = true;
-      lastEmailRef.current = email;
       setIsLoading(true);
 
       try {
@@ -110,7 +95,6 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
         console.error('Error in fetchCaregiver:', err);
       } finally {
         setIsLoading(false);
-        isFetchingRef.current = false;
       }
     }
     fetchCaregiver();

@@ -85,7 +85,6 @@ interface PersonalTreatmentsProps {
 }
 
 export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: PersonalTreatmentsProps) {
-  const [refreshKey, setRefreshKey] = useState(0);
   const [caregiverName, setCaregiverName] = useState<string>("");
   const [animalsForTodayList, setAnimalsForTodayList] = useState<Animal[]>([]);
   const [generalTreatments, setGeneralTreatments] = useState<GeneralTreatment[]>([]);
@@ -94,6 +93,9 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [confirmRemoveDialogOpen, setConfirmRemoveDialogOpen] = useState(false);
   const [selectedAnimalToRemove, setSelectedAnimalToRemove] = useState<string>("");
+  
+  // Ref to track if we're already fetching
+  const fetchInProgressRef = useRef(false);
   const [selectedAnimalType, setSelectedAnimalType] = useState<string>("");
   const [selectedAnimalToAdd, setSelectedAnimalToAdd] = useState<string>("");
   const [animalSearchQuery, setAnimalSearchQuery] = useState<string>("");
@@ -123,26 +125,8 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
     }
   }, []);
 
-  const isFetchingRef = useRef(false);
-  const lastEmailRef = useRef<string>("");
-
-  // Listen for treatment changes to force reload
-  useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      // Reset to force a new fetch
-      lastEmailRef.current = '';
-      isFetchingRef.current = false;
-      setRefreshKey(k => k + 1);
-    };
-    const { onEvent } = require('@/src/lib/eventBus');
-    const off = onEvent('treatments:changed', handler);
-    return () => off();
-  }, []);
-
   const fetchCaregiverAndAnimals = async () => {
     console.log('🔵 PersonalTreatments fetch called, email:', email);
-    console.log('🔵 isFetchingRef.current:', isFetchingRef.current);
-    console.log('🔵 lastEmailRef.current:', lastEmailRef.current);
     
     if (!email) {
       console.log('⚠️ No email, skipping fetch');
@@ -151,14 +135,13 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
     }
 
     // Prevent duplicate fetches
-    if (isFetchingRef.current) {
-      console.log('⚠️ Already fetching, skipping');
+    if (fetchInProgressRef.current) {
+      console.log('⚠️ Fetch already in progress, skipping duplicate');
       return;
     }
 
     console.log('✅ Starting fetch for email:', email);
-    isFetchingRef.current = true;
-    lastEmailRef.current = email;
+    fetchInProgressRef.current = true;
     setIsLoading(true);
 
     try {
@@ -172,7 +155,6 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
 
       if (!name) {
         setAnimalsForTodayList([]);
-        isFetchingRef.current = false;
         return;
       }
 
@@ -181,8 +163,22 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
       const response = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}&includeGeneralTreatments=true`);
       const data = await response.json();
       
-      const list = Array.isArray(data.animals) ? data.animals : [];
-      const generalList = Array.isArray(data.generalTreatments) ? data.generalTreatments : [];
+      const rawPersonalTreatments = Array.isArray(data.allPersonalTreatments) ? data.allPersonalTreatments : [];
+      const generalList = Array.isArray(data.allGeneralTreatments) ? data.allGeneralTreatments : [];
+      
+      // Map the treatments to the format the component expects
+      const list = rawPersonalTreatments.map(treatment => ({
+        id: `${treatment.animalTypeKey}-${treatment.animalName}`,
+        name: treatment.animalName,
+        animalType: treatment.animalTypeKey,
+        image: treatment.image || '',
+        treatment: treatment.treatment || '',
+        medicalCase: treatment.medicalCase || '',
+        dosage: treatment.dosage || '',
+        date: treatment.date || '',
+        isPersonalIncomplete: !treatment.isCompleted,
+        isPersonalComplete: treatment.isCompleted
+      }));
       
       setAnimalsForTodayList(list);
       setGeneralTreatments(generalList);
@@ -193,19 +189,13 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
       console.error('Error in fetchCaregiverAndAnimals:', err);
     } finally {
       setIsLoading(false);
-      isFetchingRef.current = false;
+      fetchInProgressRef.current = false;
     }
   };
 
   useEffect(() => {
-    // If we already fetched for this email, skip the fetch (unless refreshKey changed)
-    if (lastEmailRef.current === email && animalsForTodayList.length > 0 && refreshKey === 0) {
-      console.log('⚠️ Already fetched for this email, skipping');
-      setIsLoading(false);
-      return;
-    }
     fetchCaregiverAndAnimals();
-  }, [email, refreshKey]);
+  }, [email]);
 
   // Fetch caregiver notes for selected date
   useEffect(() => {
@@ -412,8 +402,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
       setSelectedAnimalToAdd("");
       setAnimalSearchQuery("");
       
-      // Reset fetching flag and refresh the list
-      isFetchingRef.current = false;
+      // Refresh the list
       await fetchCaregiverAndAnimals();
     } catch (error) {
       console.error('Error adding animal:', error);
@@ -451,9 +440,6 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
           i === index ? { ...t, isCompleted: true } : t
         )
       );
-      // Notify other screens that treatments changed
-      const { emitEvent } = require('@/src/lib/eventBus');
-      emitEvent('treatments:changed', { animal: animalName });
     } catch (error) {
       console.error('Error completing general treatment:', error);
       toast.error("שגיאה בסימון הטיפול כבוצע");
@@ -490,11 +476,86 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
           i === index ? { ...t, isCompleted: false } : t
         )
       );
-      // Notify other screens that treatments changed
-      const { emitEvent } = require('@/src/lib/eventBus');
-      emitEvent('treatments:changed', { animal: animalName });
     } catch (error) {
       console.error('Error marking general treatment as incomplete:', error);
+      toast.error("שגיאה בסימון הטיפול כלא בוצע");
+    } finally {
+      setCompletingTreatment(null);
+    }
+  };
+
+  const handleCompletePersonalTreatment = async (animalType: string, animalName: string) => {
+    const today = new Date();
+    const dateStr = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+    
+    setCompletingTreatment(`personal-${animalType}-${animalName}`);
+    try {
+      const response = await fetch('/api/treatments/complete-personal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          animalType: animalType,
+          animalName: animalName,
+          date: dateStr,
+          markAsComplete: true,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to complete personal treatment');
+      }
+
+      toast.success("הטיפול האישי סומן כבוצע");
+      
+      // Update the animal in the list
+      setAnimalsForTodayList(prev => 
+        prev.map(a => 
+          a.name === animalName ? { ...a, isPersonalIncomplete: false, isPersonalComplete: true } : a
+        )
+      );
+    } catch (error) {
+      console.error('Error completing personal treatment:', error);
+      toast.error("שגיאה בסימון הטיפול כבוצע");
+    } finally {
+      setCompletingTreatment(null);
+    }
+  };
+
+  const handleIncompletePersonalTreatment = async (animalType: string, animalName: string) => {
+    const today = new Date();
+    const dateStr = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+    
+    setCompletingTreatment(`personal-${animalType}-${animalName}`);
+    try {
+      const response = await fetch('/api/treatments/complete-personal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          animalType: animalType,
+          animalName: animalName,
+          date: dateStr,
+          markAsComplete: false,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark personal treatment as incomplete');
+      }
+
+      toast.success("הטיפול האישי סומן כלא בוצע");
+      
+      // Update the animal in the list
+      setAnimalsForTodayList(prev => 
+        prev.map(a => 
+          a.name === animalName ? { ...a, isPersonalIncomplete: true, isPersonalComplete: false } : a
+        )
+      );
+    } catch (error) {
+      console.error('Error marking personal treatment as incomplete:', error);
       toast.error("שגיאה בסימון הטיפול כלא בוצע");
     } finally {
       setCompletingTreatment(null);
@@ -514,12 +575,12 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
   }
 
   return (
-    <div className="min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col" style={{ backgroundColor: '#F7F3ED' }}>
+    <div className="min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col" style={{ backgroundColor: '#F7F3ED' }}> 
       <div className="max-w-7xl mx-auto w-full flex-shrink-0">
         <div className="mb-8">
           <h1 className="mb-2 text-right text-[24px]">טיפולים אישיים - {caregiverName}</h1>
           <p className="text-muted-foreground text-right">
-            יש לך {animalsForTodayList.length} חיות שהוקצו לך
+            יש לך {animalsForTodayList.filter(a => a.isPersonalComplete || a.isPersonalIncomplete).length} חיות עם טיפולים להיום
           </p>
           <div className="mt-4 flex gap-2">
             <Button
@@ -554,7 +615,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Pill className="w-5 h-5" />
-                טיפולים אישיים
+               טיפולים אישיים להיום
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -562,7 +623,9 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
                 {/* Incomplete personal treatments first */}
                 {animalsForTodayList
                   .filter(a => a.isPersonalIncomplete)
-                  .map(animal => (
+                  .map(animal => {
+                    const isCompleting = completingTreatment === `personal-${animal.animalType}-${animal.name}`;
+                    return (
                     <div 
                       key={animal.id} 
                       className="flex items-center justify-between p-3 rounded-lg gap-3"
@@ -579,15 +642,34 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
                         <div className="font-medium">{animal.name}</div>
                         <div className="text-sm text-muted-foreground">{animalTypeToHebrew[animal.animalType]}</div>
                       </div>
-                      <Button size="sm" onClick={() => onSelectAnimal(animal.animalType, animal.name)}>
-                        פרטים
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleCompletePersonalTreatment(animal.animalType, animal.name)}
+                          disabled={isCompleting}
+                        >
+                          {isCompleting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Check className="w-4 h-4 ml-1" />
+                              סמן כבוצע
+                            </>
+                          )}
+                        </Button>
+                        <Button size="sm" onClick={() => onSelectAnimal(animal.animalType, animal.name)}>
+                          פרטים
+                        </Button>
+                      </div>
                     </div>
-                  ))}
+                  )})}
                 {/* Complete personal treatments - greyed */}
                 {animalsForTodayList
                   .filter(a => a.isPersonalComplete)
-                  .map(animal => (
+                  .map(animal => {
+                    const isCompleting = completingTreatment === `personal-${animal.animalType}-${animal.name}`;
+                    return (
                     <div 
                       key={animal.id} 
                       className="flex items-center justify-between p-3 rounded-lg gap-3"
@@ -607,11 +689,28 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
                         <div className="font-medium">{animal.name}</div>
                         <div className="text-sm text-muted-foreground">{animalTypeToHebrew[animal.animalType]}</div>
                       </div>
-                      <Button size="sm" onClick={() => onSelectAnimal(animal.animalType, animal.name)}>
-                        פרטים
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleIncompletePersonalTreatment(animal.animalType, animal.name)}
+                          disabled={isCompleting}
+                        >
+                          {isCompleting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <X className="w-4 h-4 ml-1" />
+                              בטל
+                            </>
+                          )}
+                        </Button>
+                        <Button size="sm" onClick={() => onSelectAnimal(animal.animalType, animal.name)}>
+                          פרטים
+                        </Button>
+                      </div>
                     </div>
-                  ))}
+                  )})}
               </div>
             </CardContent>
           </Card>

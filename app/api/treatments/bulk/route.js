@@ -110,9 +110,10 @@ export async function POST(request) {
       
       // Check if general caregiver is selected
       const isGeneralCaregiver = caregiverName && caregiverName.trim() === 'כללי';
+      const isPersonalCaregiver = caregiverName && caregiverName.trim() !== 'כללי';
       console.log(`Is general caregiver selected: ${isGeneralCaregiver}`);
       
-      const result = await addTreatmentAtTop(animalSheetId, treatments, isGeneralCaregiver);
+      const result = await addTreatmentAtTop(animalSheetId, treatments, isGeneralCaregiver, isPersonalCaregiver);
       await sortAnimalTreatmentsByDateDescending(animalSheetId, animalName);
       
       // Update caregiver if provided

@@ -79,6 +79,11 @@ export default function App() {
     setCurrentScreen("addTreatmentFromSchedule");
   };
 
+  const handleAddTreatmentFromPersonalTreatments = () => {
+    setPreviousScreen("personalTreatments");
+    setCurrentScreen("addTreatmentFromSchedule");
+  };
+
   const handleBackFromProfile = () => {
     console.log(`Going back to: ${previousScreen}`);
     setCurrentScreen(previousScreen);
@@ -129,7 +134,7 @@ export default function App() {
       {currentScreen === "personalTreatments" && (
         <PersonalTreatments 
           onSelectAnimal={handleSelectAnimal}
-          onAddTreatment={handleAddTreatmentFromSchedule}
+          onAddTreatment={handleAddTreatmentFromPersonalTreatments}
           email={userEmail}
         />
       )}

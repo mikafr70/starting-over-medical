@@ -103,15 +103,23 @@ export async function GET() {
               
               const animalPhoto = photoCache.get(cacheKey);
               
-              // Create a treatment entry for each time slot
+              // Create a treatment entry for each time slot (excluding personal and general treatments)
               treatmentTimes.forEach(timeInfo => {
+                // Skip personal and general treatments - they don't belong in daily schedule
+                if (timeInfo.timeSlot === 'personal' || timeInfo.timeSlot === 'general') {
+                  return;
+                }
+                
+                const medicalCaseValue = timeInfo.medicalCase || timeInfo.treatment || 'ללא תיאור';
+                console.log(`Treatment: ${timeInfo.treatment}, MedicalCase: ${timeInfo.medicalCase}, Final: ${medicalCaseValue}`);
+                
                 const treatment = {
                   id: `${animalType}_${fileName}_${timeInfo.timeSlot}_${label}_${Math.random()}`,
                   animalName: animalName,
                   animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
                   animalTypeKey: animalType,
                   animalImage: animalPhoto || '',
-                  medicalCase: timeInfo.medicalCase || 'ללא תיאור',
+                  medicalCase: medicalCaseValue,
                   treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
                   time: getTimeBySlot(timeInfo.timeSlot),
                   timeSlot: timeInfo.timeSlot,

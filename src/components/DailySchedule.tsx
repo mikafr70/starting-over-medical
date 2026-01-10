@@ -8,11 +8,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2, X } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { toast } from "sonner";
-import { emitEvent } from '@/src/lib/eventBus';
-
-// Global singleton to prevent duplicate API calls across component remounts
-let globalFetchPromise: Promise<any> | null = null;
-let globalFetchData: any = null;
 
 interface Treatment {
   id: number;
@@ -98,7 +93,6 @@ const generateScheduleDays = () => {
 };
 
 export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyScheduleProps) {
-  const [refreshKey, setRefreshKey] = useState(0);
   const [scheduleDays] = useState(generateScheduleDays());
   const [selectedDayIndex, setSelectedDayIndex] = useState(2); // Index 2 is today (middle of the array)
   const [completedTreatments, setCompletedTreatments] = useState<Set<string>>(new Set());
@@ -123,6 +117,9 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const [savingEvent, setSavingEvent] = useState(false);
   const [selectedEventDate, setSelectedEventDate] = useState<string>(''); // DD.MM.YYYY format
 
+  // Ref to prevent duplicate fetches
+  const fetchInProgressRef = useRef(false);
+
   const selectedDay = scheduleDays[selectedDayIndex];
 
   // Initialize selectedEventDate to today when component mounts
@@ -132,90 +129,25 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     }
   }, [selectedDay]);
 
-  // Fetch treatments from API with global deduplication
+  // Fetch treatments from API
   useEffect(() => {
     const fetchTreatments = async () => {
+      // Prevent duplicate fetches
+      if (fetchInProgressRef.current) {
+        console.log('⚠️ Fetch already in progress, skipping duplicate call');
+        return;
+      }
+
       try {
+        fetchInProgressRef.current = true;
         setLoading(true);
         setError(null);
         
-        // Check if we already have cached data
-        if (globalFetchData) {
-          console.log('✨ Using cached treatment data');
-          const data = globalFetchData;
-          
-          const formattedTreatments: Treatment[] = data.treatments.map((treatment: any) => ({
-            id: Math.abs(hashCode(treatment.id)),
-            animalName: treatment.animalName,
-            animalType: treatment.animalType,
-            animalImage: treatment.animalImage,
-            treatmentType: treatment.treatmentType,
-            medicalCase: treatment.medicalCase || 'ללא תיאור',
-            time: treatment.time,
-            timeSlot: treatment.timeSlot,
-            caregiver: treatment.caregiver,
-            isCompleted: treatment.isCompleted || false,
-            treatmentDate: treatment.treatmentDate,
-            dateLabel: treatment.dateLabel
-          }));
-          
-          setTreatments(formattedTreatments);
-          
-          const initialCompleted = new Set<string>();
-          formattedTreatments.forEach(treatment => {
-            if (treatment.isCompleted) {
-              const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
-              initialCompleted.add(key);
-            }
-          });
-          setCompletedTreatments(initialCompleted);
-          setLoading(false);
-          return;
-        }
-        
-        // Check if a fetch is already in progress
-        if (globalFetchPromise) {
-          console.log('⏳ Waiting for existing API call to complete...');
-          const data = await globalFetchPromise;
-          
-          const formattedTreatments: Treatment[] = data.treatments.map((treatment: any) => ({
-            id: Math.abs(hashCode(treatment.id)),
-            animalName: treatment.animalName,
-            animalType: treatment.animalType,
-            animalImage: treatment.animalImage,
-            treatmentType: treatment.treatmentType,
-            medicalCase: treatment.medicalCase || 'ללא תיאור',
-            time: treatment.time,
-            timeSlot: treatment.timeSlot,
-            caregiver: treatment.caregiver,
-            isCompleted: treatment.isCompleted || false,
-            treatmentDate: treatment.treatmentDate,
-            dateLabel: treatment.dateLabel
-          }));
-          
-          setTreatments(formattedTreatments);
-          
-          const initialCompleted = new Set<string>();
-          formattedTreatments.forEach(treatment => {
-            if (treatment.isCompleted) {
-              const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
-              initialCompleted.add(key);
-            }
-          });
-          setCompletedTreatments(initialCompleted);
-          setLoading(false);
-          return;
-        }
-        
-        // Start new fetch and store the promise globally
-        console.log('🚀 Making new API call for 3 days of treatments...');
-        globalFetchPromise = fetch('/api/treatments/today').then(res => res.json());
-        
-        const data = await globalFetchPromise;
+        console.log('🚀 Making API call for 3 days of treatments...');
+        const response = await fetch('/api/treatments/today');
+        const data = await response.json();
         
         if (data.success) {
-          // Cache the data globally
-          globalFetchData = data;
           
           console.log('Fetched treatments data:', data);
           // Convert API data to our Treatment interface
@@ -251,35 +183,19 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
           console.log(`Loaded ${formattedTreatments.length} treatments from Google Sheets`);
           console.log(`${initialCompleted.size} treatments already marked as completed`);
         } else {
-          globalFetchPromise = null; // Clear on error to allow retry
-          globalFetchData = null;
           setError(data.error || 'Failed to fetch treatments');
           console.error('Failed to fetch treatments:', data.error);
         }
       } catch (err) {
-        globalFetchPromise = null; // Clear on error to allow retry
-        globalFetchData = null;
         setError('Failed to connect to server');
         console.error('Error fetching treatments:', err);
       } finally {
         setLoading(false);
+        fetchInProgressRef.current = false;
       }
     };
 
     fetchTreatments();
-  }, [refreshKey]);
-
-  // Listen for treatment changes and force a reload when needed
-  useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      // Clear global cache so next fetch returns fresh data
-      globalFetchData = null;
-      globalFetchPromise = null;
-      setRefreshKey(k => k + 1);
-    };
-    const { onEvent } = require('@/src/lib/eventBus');
-    const off = onEvent('treatments:changed', handler);
-    return () => off();
   }, []);
 
   // Fetch daily events when selected day changes
@@ -585,8 +501,6 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       }
       
       setCompletedTreatments(newCompletedTreatments);
-      // Notify other screens that treatments changed so they can refresh
-      emitEvent('treatments:changed', { key: confirmDialog.treatmentKey });
       
     } catch (error) {
       console.error('Error updating treatment:', error);
