@@ -167,7 +167,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
       const generalList = Array.isArray(data.allGeneralTreatments) ? data.allGeneralTreatments : [];
       
       // Map the treatments to the format the component expects
-      const list = rawPersonalTreatments.map(treatment => ({
+      const list = rawPersonalTreatments.map((treatment: any) => ({
         id: `${treatment.animalTypeKey}-${treatment.animalName}`,
         name: treatment.animalName,
         animalType: treatment.animalTypeKey,

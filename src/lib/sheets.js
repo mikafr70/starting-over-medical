@@ -3364,6 +3364,27 @@ async function withSheetsRetry(fn, maxAttempts = 5) {
 
 
 /*--------------------------------------------------
+  Get animal photo from Photo sheet
+---------------------------------------------------*/
+export async function getAnimalPhoto(animalType, animalName) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> getAnimalPhoto for animal: ${animalName} of type: ${animalType}`);
+    
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
+    if (!spreadsheetId) {
+      return null;
+    }
+
+    const doc = await getDoc(spreadsheetId);
+    return await getAnimalImageFromDoc(doc);
+  } catch (error) {
+    console.error('Error getting animal photo:', error);
+    return null;
+  }
+}
+
+/*--------------------------------------------------
   Save animal photo to Photo sheet
 ---------------------------------------------------*/
 export async function saveAnimalPhoto(animalType, animalName, photoBase64) {
