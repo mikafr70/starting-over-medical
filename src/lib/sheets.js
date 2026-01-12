@@ -11,6 +11,115 @@ let configLoaded = false;
 let configPromise = null;
 
 /*--------------------------------------------------
+  CACHE MECHANISM
+  Rules:
+  1. Clear cache on user login
+  2. Cache contains: sheetId, timestamp, sheetTab, content
+  3. Cache valid for 5 minutes
+  4. Check cache before API calls
+  5. Invalidate cache on writes
+  
+  Note: In development, use global object to persist cache across hot reloads
+---------------------------------------------------*/
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+// Use global object to persist cache across module reloads in development
+if (!global.sheetCache) {
+  global.sheetCache = new Map();
+  console.log('🔧 Initialized new cache in global scope');
+}
+const sheetCache = global.sheetCache;
+
+// Generate cache key from sheetId and optional tab/range
+function getCacheKey(sheetId, tab = 'default', range = 'all') {
+  return `${sheetId}:${tab}:${range}`;
+}
+
+// Get data from cache if valid
+function getFromCache(sheetId, tab = 'default', range = 'all') {
+  const key = getCacheKey(sheetId, tab, range);
+  const cached = sheetCache.get(key);
+  
+  if (!cached) {
+    console.log(`📦 Cache MISS: ${key} (cache size: ${sheetCache.size})`);
+    return null;
+  }
+  
+  const age = Date.now() - cached.timestamp;
+  if (age > CACHE_DURATION_MS) {
+    console.log(`📦 Cache EXPIRED: ${key} (age: ${Math.round(age/1000)}s)`);
+    sheetCache.delete(key);
+    return null;
+  }
+  
+  console.log(`✅ Cache HIT: ${key} (age: ${Math.round(age/1000)}s)`);
+  return cached.content;
+}
+
+// Store data in cache
+function setInCache(sheetId, tab = 'default', range = 'all', content) {
+  const key = getCacheKey(sheetId, tab, range);
+  sheetCache.set(key, {
+    sheetId,
+    tab,
+    range,
+    content,
+    timestamp: Date.now()
+  });
+  console.log(`💾 Cache SET: ${key}`);
+}
+
+// Invalidate specific cache entry
+function invalidateCache(sheetId, tab = null) {
+  if (tab) {
+    // Invalidate specific tab
+    const keysToDelete = [];
+    for (const key of sheetCache.keys()) {
+      if (key.startsWith(`${sheetId}:${tab}:`)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => {
+      sheetCache.delete(key);
+      console.log(`🗑️ Cache INVALIDATED: ${key}`);
+    });
+  } else {
+    // Invalidate all entries for this sheet
+    const keysToDelete = [];
+    for (const key of sheetCache.keys()) {
+      if (key.startsWith(`${sheetId}:`)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => {
+      sheetCache.delete(key);
+      console.log(`🗑️ Cache INVALIDATED: ${key}`);
+    });
+  }
+}
+
+// Clear entire cache (on user login)
+export function clearAllCache() {
+  const size = sheetCache.size;
+  sheetCache.clear();
+  console.log(`🧹 Cache CLEARED: ${size} entries removed`);
+}
+
+// Get cache statistics
+export function getCacheStats() {
+  const now = Date.now();
+  const entries = Array.from(sheetCache.entries()).map(([key, value]) => ({
+    key,
+    age: Math.round((now - value.timestamp) / 1000),
+    expired: (now - value.timestamp) > CACHE_DURATION_MS
+  }));
+  return {
+    totalEntries: sheetCache.size,
+    entries
+  };
+}
+
+/*--------------------------------------------------
  Internal field name -> sheet header (Hebrew)
 ---------------------------------------------------*/
 const FIELD_TO_HEADER = {
@@ -288,6 +397,13 @@ function getDriveClient() {
 ---------------------------------------------------*/
 export async function getDoc(spreadsheetId) {
   try {
+    // Check cache first
+    const cached = getFromCache(spreadsheetId, 'doc-info', 'metadata');
+    if (cached) {
+      console.log(`✅ Cache HIT for getDoc - returning cached doc: ${cached.title}`);
+      return cached;
+    }
+    
     console.log('>>> Loading document info...');
     ensureConfigLoaded()
     const auth = getSheetsAuth();
@@ -297,6 +413,9 @@ export async function getDoc(spreadsheetId) {
     await withSheetsRetry(() =>  doc.loadInfo());
     // temp temp temp temp temp temp temp temp temp
     console.log('<<< Document loaded:', doc.title);
+
+    // Store in cache
+    setInCache(spreadsheetId, 'doc-info', 'metadata', doc);
 
     return doc;
   } catch (error) {
@@ -313,6 +432,13 @@ async function findSpreadsheetInFolder(animalType, animalName) {
   const drive = getDriveClient();
   const animalTypeKey = await getAnimalTypeKey(animalType);
   const folderId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId;
+
+  // Check cache first
+  const cacheKey = `${animalType}-${animalName}`;
+  const cached = getFromCache(folderId, 'spreadsheet-lookup', cacheKey);
+  if (cached) {
+    return cached;
+  }
 
   try {
     // Extract just the name part from animalName (e.g., "קשיו" from "קשיו 939000007563363")
@@ -361,10 +487,14 @@ async function findSpreadsheetInFolder(animalType, animalName) {
     
     if (!exactMatch) {
       console.log(`No treatment sheet found for animal ${animalName}`);
+      // Cache null result too to avoid repeated failed lookups
+      setInCache(folderId, 'spreadsheet-lookup', cacheKey, null);
       return null;
     }
 
     console.log(`Found match: ${exactMatch.name}`);
+    // Cache the result
+    setInCache(folderId, 'spreadsheet-lookup', cacheKey, exactMatch.id);
     return exactMatch.id;
   } catch (error) {
     console.error('Error searching Drive folder:', error);
@@ -549,9 +679,16 @@ export async function getAnimals(animalType) {
       const animalTypeKey = await getAnimalTypeKey(animalType);
       console.log('>>> getAnimals for type:', animalType, '-> key:', animalTypeKey);
       
-      console.log('@@@Animals sheet ID:', ANIMAL_TREATMENT_SHEETS()[animalTypeKey].sheetId);
+      const sheetId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].sheetId;
+      console.log('@@@Animals sheet ID:', sheetId);
+      
+      // Check cache first
+      const cached = getFromCache(sheetId, 'animals', 'all');
+      if (cached) {
+        return cached;
+      }
     
-      const doc = await getDoc(ANIMAL_TREATMENT_SHEETS()[animalTypeKey].sheetId);
+      const doc = await getDoc(sheetId);
       console.log('@@@Got doc, title:', doc.title);
 
       const sheet = doc.sheetsByIndex[0];
@@ -586,6 +723,9 @@ export async function getAnimals(animalType) {
       friends: row._rawData?.[headerMap['חברויות']] || '',
       in_treatment: row._rawData?.[headerMap['מטפל']] || ''
     }));
+    
+    // Store in cache
+    setInCache(sheetId, 'animals', 'all', animals);
 
     //console.log('Mapped animals:', animals[1]);
     return animals;
@@ -607,6 +747,12 @@ export async function getAnimalTreatments(animalType, animalName) {
     const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
     if (!spreadsheetId) {
       return [];
+    }
+
+    // Check cache first
+    const cached = getFromCache(spreadsheetId, 'treatments', 'all');
+    if (cached) {
+      return cached;
     }
 
     const doc = await getDoc(spreadsheetId);
@@ -635,6 +781,8 @@ export async function getAnimalTreatments(animalType, animalName) {
       notes: row._rawData?.[headerMap['הערות']] || ''
     }));
 
+    // Store in cache
+    setInCache(spreadsheetId, 'treatments', 'all', treatmentsMap);
 
     return treatmentsMap;
   } catch (error) {
@@ -651,6 +799,13 @@ export async function getAnimalsFromSheet(spreadsheetId) {
     console.log('>>> getAnimalsFromSheet...');
     await ensureConfigLoaded();
     if (!spreadsheetId) return [];
+    
+    // Check cache first
+    const cached = getFromCache(spreadsheetId, 'animals-from-sheet', 'all');
+    if (cached) {
+      return cached;
+    }
+    
     console.log(`Loading animals from sheetId: ${spreadsheetId}`);
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0];
@@ -687,6 +842,10 @@ export async function getAnimalsFromSheet(spreadsheetId) {
     }));
 
     console.log(`Found ${animals.length} animals in sheet ${spreadsheetId}`);
+    
+    // Store in cache
+    setInCache(spreadsheetId, 'animals-from-sheet', 'all', animals);
+    
     return animals;
   } catch (error) {
     console.error(`Error reading animals from sheet ${spreadsheetId}:`, error);
@@ -701,6 +860,14 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
   try {
     if (!spreadsheetId) return [];
     await ensureConfigLoaded();
+    
+    // Check cache first
+    const cacheKey = `${animalType}`;
+    const cached = getFromCache(spreadsheetId, 'protocols', cacheKey);
+    if (cached) {
+      return cached;
+    }
+    
     console.log(`>>> Loading protocols from sheetId: ${spreadsheetId}, animalType: ${animalType}`);
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0];
@@ -761,6 +928,10 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
       const matches = rowType === searchType;
       return matches;
     });
+    
+    // Store in cache (reuse cacheKey from line 836)
+    setInCache(spreadsheetId, 'protocols', cacheKey, relevant_protocols);
+    
     return relevant_protocols;
   } catch (error) {
     console.error(`Error reading protocols from sheet ${spreadsheetId}:`, error);
@@ -985,6 +1156,9 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
       });
     }
 
+    // Invalidate cache for this sheet
+    invalidateCache(spreadsheetId);
+
     return { success: true };
   } catch (error) {
     console.error('Error in addTreatmentAtTop:', error);
@@ -1047,6 +1221,7 @@ export async function deleteAnimalTreatmentsBetweenDates(animalType, animalName,
     }
 
     console.log(`Deleted ${rowsDeleted} treatment rows for animal ${animalName}.`);
+    invalidateCache(spreadsheetId);
     return { success: true, rowsDeleted };
   } catch (error) {
     console.error('Error in deleteAnimalTreatmentsBetweenDates:', error);
@@ -1126,6 +1301,7 @@ export async function removeCaregiverFromAnimal(animalType, animalName, caregive
     
     await sheet.saveUpdatedCells();  
     console.log(`Caregiver ${caregiverName} removed from animal ${animalName} successfully.`);
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in removeCaregiverFromAnimal:', error);
@@ -1184,6 +1360,7 @@ export async function addCaregiverToAnimal(animalType, animalName, caregiverName
     
     await animalRow.save();
     console.log(`Caregiver ${caregiverName} added to animal ${animalName} successfully.`);
+    invalidateCache(sheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in addCaregiverToAnimal:', error);
@@ -1261,6 +1438,7 @@ export async function saveAdoptionData(adoptionData) {
     // Remove the animal from the main list
     await removeAnimalFromList(adoptionData.animalType, adoptionData.animalName);
     
+    invalidateCache(adoptionData.animalSheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveAdoptionData:', error);
@@ -1326,6 +1504,7 @@ export async function saveEuthanasiaData(euthanasiaData) {
     // Remove the animal from the main list
     await removeAnimalFromList(euthanasiaData.animalType, euthanasiaData.animalName);
     
+    invalidateCache(euthanasiaData.animalSheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveEuthanasiaData:', error);
@@ -1431,6 +1610,7 @@ export async function saveBirthData(birthData) {
     await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
     console.log(`Created treatment sheet for newborn: ${treatmentSheetName}`);
     
+    invalidateCache(birthData.animalSheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveBirthData:', error);
@@ -1515,6 +1695,8 @@ export async function saveArrivalData(arrivalData) {
     await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
     console.log(`Created treatment sheet for arrival: ${treatmentSheetName}`);
     
+    const spreadsheetId = trackingSheetId;
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveArrivalData:', error);
@@ -1580,6 +1762,7 @@ export async function saveDeathData(deathData) {
     // Remove the animal from the main list
     await removeAnimalFromList(deathData.animalType, deathData.animalName);
     
+    invalidateCache(deathData.animalSheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveDeathData:', error);
@@ -1642,7 +1825,15 @@ export async function getCaregiverNameFromSheet(email) {
     console.log('>>> Retreive Cargiver name for email:', email);
     await ensureConfigLoaded();
     const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
-    if (!spreadsheetId) throw new Error('Could not find caregiver sheet' );  
+    if (!spreadsheetId) throw new Error('Could not find caregiver sheet' );
+    
+    // Check cache first
+    const cacheKey = `email-${email}`;
+    const cached = getFromCache(spreadsheetId, 'caregiver-name', cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
+    
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0]; 
     await sheet.loadHeaderRow();
@@ -1658,9 +1849,13 @@ export async function getCaregiverNameFromSheet(email) {
       const caregiverName = row._rawData?.[caregiverColIndex];
       if (email === row._rawData?.[emailColIndex]) {
         console.log(`<<< Found caregiver name: ${caregiverName} for email: ${email}`);
+        // Store in cache (reuse cacheKey from line 1803)
+        setInCache(spreadsheetId, 'caregiver-name', cacheKey, caregiverName);
         return caregiverName;
       }
     }
+    // Store empty result in cache too (reuse cacheKey from line 1803)
+    setInCache(spreadsheetId, 'caregiver-name', cacheKey, '');
     return '';
   } catch (error) {
     console.error('Error in getCaregiverNameFromSheet:', error);
@@ -1677,6 +1872,13 @@ export async function getCaregiverTreatedTypes(caregiverName) {
     await ensureConfigLoaded();
     const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
     if (!spreadsheetId) throw new Error('Could not find caregiver sheet');
+    
+    // Check cache first
+    const cacheKey = `types-${caregiverName}`;
+    const cached = getFromCache(spreadsheetId, 'caregiver-types', cacheKey);
+    if (cached) {
+      return cached;
+    }
     
     const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0]; 
@@ -1724,12 +1926,18 @@ export async function getCaregiverTreatedTypes(caregiverName) {
         }
         
         console.log(`<<< Found treated types for ${caregiverName}:`, animalTypeKeys);
-        return animalTypeKeys.length > 0 ? animalTypeKeys : Object.keys(ANIMAL_TREATMENT_SHEETS());
+        const result = animalTypeKeys.length > 0 ? animalTypeKeys : Object.keys(ANIMAL_TREATMENT_SHEETS());
+        // Store in cache (reuse cacheKey from earlier)
+        setInCache(spreadsheetId, 'caregiver-types', cacheKey, result);
+        return result;
       }
     }
     
     console.log(`<<< Caregiver ${caregiverName} not found, returning all types`);
-    return Object.keys(ANIMAL_TREATMENT_SHEETS());
+    const result = Object.keys(ANIMAL_TREATMENT_SHEETS());
+    // Store in cache (reuse cacheKey from earlier)
+    setInCache(spreadsheetId, 'caregiver-types', cacheKey, result);
+    return result;
   } catch (error) {
     console.error('Error in getCaregiverTreatedTypes:', error);
     // Return all types on error to avoid breaking functionality
@@ -1794,7 +2002,16 @@ export async function getAllCaregivers() {
     console.log('>>> Retreive all caregivers from sheet');
     await ensureConfigLoaded();
     if (!process.env.CAREGIVERS_SHEET_ID) throw new Error('Could not find caregiver sheet');
-    const doc = await getDoc(process.env.CAREGIVERS_SHEET_ID);
+    
+    const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
+    
+    // Check cache first
+    const cached = getFromCache(spreadsheetId, 'all-caregivers', 'list');
+    if (cached) {
+      return cached;
+    }
+    
+    const doc = await getDoc(spreadsheetId);
     const sheet = doc.sheetsByIndex[0];
     await sheet.loadHeaderRow();
     const headers = sheet.headerValues;
@@ -1811,9 +2028,64 @@ export async function getAllCaregivers() {
         if (trimmed && !names.includes(trimmed)) names.push(trimmed);
       }
     }
+    
+    // Store in cache
+    setInCache(spreadsheetId, 'all-caregivers', 'list', names);
+    
     return names;
   } catch (error) {
     console.error('Error in getAllCaregivers:', error);
+    throw error;
+  }
+}
+
+/*--------------------------------------------------  
+  Add new caregiver to caregivers sheet
+---------------------------------------------------*/ 
+export async function addCaregiver(caregiverData) {
+  try {
+    console.log('>>> addCaregiver:', caregiverData);
+    await ensureConfigLoaded();
+    const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
+    if (!spreadsheetId) throw new Error('Could not find caregiver sheet');
+    
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    
+    const caregiverColIndex = headers.findIndex(h => h && h.trim() === 'מטפל');
+    const emailColIndex = headers.findIndex(h => h && h.trim().toLowerCase() === 'מייל');
+    const passwordColIndex = headers.findIndex(h => h && h.trim() === 'סיסמה');
+    
+    if (caregiverColIndex === -1 || emailColIndex === -1 || passwordColIndex === -1) {
+      throw new Error('Required headers not found in caregivers sheet');
+    }
+    
+    // Check if email already exists
+    const rows = await sheet.getRows();
+    for (const row of rows) {
+      const existingEmail = row._rawData?.[emailColIndex];
+      if (existingEmail && existingEmail.trim().toLowerCase() === caregiverData.email.trim().toLowerCase()) {
+        return { success: false, error: 'Email already exists' };
+      }
+    }
+    
+    // Add new row with caregiver data
+    await sheet.addRow({
+      'מטפל': caregiverData.name || '',
+      'מייל': caregiverData.email || '',
+      'סיסמה': caregiverData.password || ''
+    });
+    
+    console.log(`Caregiver ${caregiverData.name} added successfully`);
+    
+    // Invalidate cache
+    invalidateCache(spreadsheetId);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in addCaregiver:', error);
     throw error;
   }
 }
@@ -2058,6 +2330,16 @@ async function getAnimalImageFromDoc(doc) {
 export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneralTreatments = false) {
   console.log(`>>> hasTreatmentToday for sheetID: ${sheetId} and date: ${todayStr}, excludeCheckedGeneralTreatments: ${excludeCheckedGeneralTreatments}`);  
   await ensureConfigLoaded(); 
+  
+  // Check cache first
+  const cacheKey = `${todayStr}-${excludeCheckedGeneralTreatments}`;
+  const cached = getFromCache(sheetId, 'has-treatment', cacheKey);
+  if (cached) {
+    console.log(`✅ Cache HIT for hasTreatmentToday - returning cached result`);
+    return cached;
+  }
+  console.log(`📦 Cache MISS for hasTreatmentToday - fetching from API`);
+  
   let hasTreatment = false;
   let treatmentTimes = [];
   if (!sheetId) throw new Error('sheetId is required');  
@@ -2077,8 +2359,8 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
     });
   }
   
-  console.log('Headers:', headers);
-  console.log('HeaderMap:', headerMap);
+  //console.log('Headers:', headers);
+  //console.log('HeaderMap:', headerMap);
   
   // Column indices (fallback if header mapping doesn't work)
   const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
@@ -2122,7 +2404,7 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
         const rowValues = resp.data.values[i];
         const row = resp.data.values ? { _rawData: rowValues } : null;
         if (!row) continue;
-        console.log(`Fetched rows ${r} to ${rEnd}, got ${resp.data.values ? resp.data.values.length : 0} rows`);
+        //console.log(`Fetched rows ${r} to ${rEnd}, got ${resp.data.values ? resp.data.values.length : 0} rows`);
         const values = resp.data.values ?? [];
         const stringDate = rowValues[0];
         const parsedRowDate = parseDMY(stringDate);
@@ -2137,7 +2419,7 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
         if(parsedRowDate === parsedTodayDate) {
           console.log(`✓ Found treatment for today: ${todayStr} in row date: ${stringDate}`);
           hasTreatment = true;
-          console.log('Row raw data:', row._rawData);
+          //console.log('Row raw data:', row._rawData);
           
           const morningValue = rowValues[morningCol];
           const noonValue = rowValues[noonCol];
@@ -2273,10 +2555,197 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
       }
     }
 
-    return { hasTreatment, treatmentTimes, animalImage };
+    const result = { hasTreatment, treatmentTimes, animalImage };
+    
+    // Store in cache (reuse cacheKey from earlier)
+    setInCache(sheetId, 'has-treatment', cacheKey, result);
+    console.log(`💾 Cache SET for hasTreatmentToday with key: ${cacheKey}`);
+    
+    return result;
   } catch (error) {
     console.error('Error in hasTreatmentToday:', error);
     return { hasTreatment: false, treatmentTimes: [] };
+  }
+}
+
+/*--------------------------------------------------
+  Check if sheet has treatments for multiple dates (optimized single-call version)
+---------------------------------------------------*/
+export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedGeneralTreatments = false) {
+  console.log(`>>> hasTreatmentForDates for sheetID: ${sheetId} and dates: ${dateStrings.join(', ')}`);  
+  await ensureConfigLoaded();
+  
+  // Check cache for each date
+  const results = {};
+  const uncachedDates = [];
+  
+  for (const dateStr of dateStrings) {
+    const cacheKey = `${dateStr}-${excludeCheckedGeneralTreatments}`;
+    const cached = getFromCache(sheetId, 'has-treatment', cacheKey);
+    if (cached) {
+      console.log(`✅ Cache HIT for date ${dateStr}`);
+      results[dateStr] = cached;
+    } else {
+      uncachedDates.push(dateStr);
+    }
+  }
+  
+  // If all dates are cached, return immediately
+  if (uncachedDates.length === 0) {
+    console.log(`✅ All dates found in cache`);
+    return results;
+  }
+  
+  console.log(`📦 Cache MISS for dates: ${uncachedDates.join(', ')} - fetching from API`);
+  
+  if (!sheetId) throw new Error('sheetId is required');
+  
+  try {
+    const doc = await getDoc(sheetId);
+    const sheet = doc.sheetsByIndex[0];
+    const sheetName = sheet.title;
+    const animalImage = await getAnimalImageFromDoc(doc);
+    
+    await sheet.loadHeaderRow();
+    const headers = sheet.headerValues;
+    const headerMap = {};
+    if (headers) {
+      headers.forEach((header, index) => {
+        if (header) headerMap[header.trim()] = index;
+      });
+    }
+    
+    const morningCol = headerMap['בוקר'] !== undefined ? headerMap['בוקר'] : 2;
+    const noonCol = headerMap['צהריים'] !== undefined ? headerMap['צהריים'] : 3;
+    const eveningCol = headerMap['ערב'] !== undefined ? headerMap['ערב'] : 4;
+    const generalTreatmentCol = headerMap['טיפול כללי'] !== undefined ? headerMap['טיפול כללי'] : 5;
+    const personalTreatmentCol = headerMap['טיפול אישי'] !== undefined ? headerMap['טיפול אישי'] : 6;
+    const treatmentCol = headerMap['טיפול'] !== undefined ? headerMap['טיפול'] : 7;
+    const dosageCol = headerMap['מינון'] !== undefined ? headerMap['מינון'] : 8;
+    const caseCol = headerMap['סיבת טיפול'] !== undefined ? headerMap['סיבת טיפול'] : 11;
+    
+    // Parse all uncached dates
+    const datesToFind = {};
+    for (const dateStr of uncachedDates) {
+      datesToFind[parseDMY(dateStr)] = {
+        dateStr,
+        hasTreatment: false,
+        treatmentTimes: []
+      };
+    }
+    
+    const auth = getSheetsAuth();
+    const sheetAPI = google.sheets({ version: 'v4', auth });
+    const startCol = 1;
+    const endCol = headers.length;
+    const startRow = 2;
+    const endRow = sheet.rowCount;
+    const chunkSize = 20;
+    const startA = colToA1(startCol);
+    const endA = colToA1(endCol);
+    
+    // Single pass through the sheet to find all dates
+    const minDate = Math.min(...Object.keys(datesToFind).map(Number));
+    
+    outerLoop:
+    for (let r = startRow; r <= endRow; r += chunkSize) {
+      const rEnd = Math.min(endRow, r + chunkSize - 1);
+      const range = `${sheetName}!${startA}${r}:${endA}${rEnd}`;
+      
+      const resp = await sheetAPI.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range,
+        majorDimension: "ROWS",
+      });
+      
+      for (let i = 0; i < (resp.data.values ? resp.data.values.length : 0); i++) {
+        const rowValues = resp.data.values[i];
+        if (!rowValues) continue;
+        
+        const stringDate = rowValues[0];
+        const parsedRowDate = parseDMY(stringDate);
+        
+        if (parsedRowDate < minDate) {
+          break outerLoop;
+        }
+        
+        if (datesToFind[parsedRowDate]) {
+          const dateInfo = datesToFind[parsedRowDate];
+          console.log(`✓ Found treatment for ${dateInfo.dateStr} in row date: ${stringDate}`);
+          dateInfo.hasTreatment = true;
+          
+          const morningValue = rowValues[morningCol];
+          const noonValue = rowValues[noonCol];
+          const eveningValue = rowValues[eveningCol];
+          const generalTreatmentValue = rowValues[generalTreatmentCol];
+          const personalTreatmentValue = rowValues[personalTreatmentCol];
+          const medicalCase = rowValues[caseCol] || '';
+          const treatment = rowValues[treatmentCol] || '';
+          const dosage = rowValues[dosageCol] || '';
+          
+          const isGeneralTreatmentChecked = (generalTreatmentValue === true || generalTreatmentValue === 'TRUE');
+          
+          if (isGeneralTreatmentChecked && excludeCheckedGeneralTreatments) {
+            continue;
+          }
+          
+          const hasPersonalOrGeneralCheckbox = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE' || 
+                                                 personalTreatmentValue === false || personalTreatmentValue === 'FALSE' ||
+                                                 generalTreatmentValue === true || generalTreatmentValue === 'TRUE' ||
+                                                 generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
+          
+          if (hasPersonalOrGeneralCheckbox) {
+            const isPersonalTreatmentChecked = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE');
+            const isPersonalTreatmentUnchecked = (personalTreatmentValue === false || personalTreatmentValue === 'FALSE');
+            const isGeneralUnchecked = (generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
+            
+            if (isPersonalTreatmentChecked) {
+              dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: true, isPersonal: true });
+            } else if (isPersonalTreatmentUnchecked) {
+              dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: false, isPersonal: true });
+            } else if (isGeneralTreatmentChecked) {
+              dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: true, isPersonal: false });
+            } else if (isGeneralUnchecked) {
+              dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: false, isPersonal: false });
+            }
+          } else {
+            const hasTimeSlots = (morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') ||
+                                (noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') ||
+                                (eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE');
+            
+            if (hasTimeSlots) {
+              if(morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') {
+                dateInfo.treatmentTimes.push({ timeSlot: 'morning', medicalCase, treatment, dosage, isCompleted: morningValue === true || morningValue === 'TRUE', isGeneral: false, isPersonal: false });
+              }
+              if(noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') {
+                dateInfo.treatmentTimes.push({ timeSlot: 'noon', medicalCase, treatment, dosage, isCompleted: noonValue === true || noonValue === 'TRUE', isGeneral: false, isPersonal: false });
+              }
+              if(eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE') {
+                dateInfo.treatmentTimes.push({ timeSlot: 'evening', medicalCase, treatment, dosage, isCompleted: eveningValue === true || eveningValue === 'TRUE', isGeneral: false, isPersonal: false });
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Store results in cache and merge with cached results
+    for (const [parsedDate, dateInfo] of Object.entries(datesToFind)) {
+      const result = { hasTreatment: dateInfo.hasTreatment, treatmentTimes: dateInfo.treatmentTimes, animalImage };
+      const cacheKey = `${dateInfo.dateStr}-${excludeCheckedGeneralTreatments}`;
+      setInCache(sheetId, 'has-treatment', cacheKey, result);
+      console.log(`💾 Cache SET for date ${dateInfo.dateStr}`);
+      results[dateInfo.dateStr] = result;
+    }
+    
+    return results;
+  } catch (error) {
+    console.error('Error in hasTreatmentForDates:', error);
+    // Return empty results for uncached dates
+    for (const dateStr of uncachedDates) {
+      results[dateStr] = { hasTreatment: false, treatmentTimes: [] };
+    }
+    return results;
   }
 }
 
@@ -2354,6 +2823,7 @@ export async function markGeneralTreatmentComplete(animalType, animalName, dateS
       throw new Error(`Could not find unchecked general treatment row for ${animalName} on ${dateStr}`);
     }
     
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in markGeneralTreatmentComplete:', error);
@@ -2435,6 +2905,7 @@ export async function markGeneralTreatmentIncomplete(animalType, animalName, dat
       throw new Error(`Could not find checked general treatment row for ${animalName} on ${dateStr}`);
     }
     
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in markGeneralTreatmentIncomplete:', error);
@@ -2516,6 +2987,7 @@ export async function markPersonalTreatmentComplete(animalType, animalName, date
       throw new Error(`Could not find unchecked personal treatment row for ${animalName} on ${dateStr}`);
     }
     
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in markPersonalTreatmentComplete:', error);
@@ -2597,6 +3069,7 @@ export async function markPersonalTreatmentIncomplete(animalType, animalName, da
       throw new Error(`Could not find checked personal treatment row for ${animalName} on ${dateStr}`);
     }
     
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in markPersonalTreatmentIncomplete:', error);
@@ -2676,6 +3149,8 @@ export async function updateAnimalInList(animalType, animalName, updateData = {}
     }
 
     console.log(`Animal ${animalName} updated successfully.`);
+    const sheetId = spreadsheetId;
+    invalidateCache(sheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in updateAnimalInList:', error);
@@ -2742,6 +3217,7 @@ export async function renameAnimalTreatmentSheet(animalType, oldAnimalName, newI
     });
     
     console.log(`✓ Successfully renamed treatment sheet`);
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in renameAnimalTreatmentSheet:', error);
@@ -2823,7 +3299,7 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
       */
       // Original behavior: two weeks ago
       const twoWeeksAgo = new Date();
-      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);// - 14); !!!!!!!!!!!!!!!!!!!!!!!!!!
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7);// - 14); !!!!!!!!!!!!!!!!!!!!!!!!!!
       startDate = twoWeeksAgo;
     //}
     
@@ -2856,6 +3332,59 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
     return [];
   }
 }
+
+/*-----------------------------------------------
+  Optimized version: Get files with treatments for multiple dates in one call
+  ----------------------------------------------*/
+export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, targetDates = []) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>>> getRecentlyEditedFilesWithTreatmentsForDates for ${targetDates.length} dates...`);
+    if (!folderId) throw new Error('folderId is required');
+    if (targetDates.length === 0) throw new Error('targetDates array is required');
+    
+    const drive = getDriveClient();
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7);
+    const startDateISO = twoWeeksAgo.toISOString();
+    
+    // Convert Date objects to strings
+    const dateStrings = targetDates.map(date => 
+      `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`
+    );
+    
+    // List files modified in the last week
+    const tempResponse = await drive.files.list({
+      q: `'${folderId}' in parents and modifiedTime >= '${startDateISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
+      fields: 'files(id, name, modifiedTime)',
+      spaces: 'drive'
+    });
+    
+    console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
+    
+    // Object to store results: { dateStr: [fileName1, treatmentTimes1, ...] }
+    const resultsByDate = {};
+    dateStrings.forEach(dateStr => resultsByDate[dateStr] = []);
+    
+    // Check all dates for each file in a single call
+    for (const file of tempResponse.data.files) {
+      const dateResults = await hasTreatmentForDates(file.id, dateStrings);
+      
+      // Process results for each date
+      for (const [dateStr, { hasTreatment, treatmentTimes }] of Object.entries(dateResults)) {
+        if (hasTreatment) {
+          resultsByDate[dateStr].push(file.name, treatmentTimes);
+        }
+      }
+    }
+    
+    return resultsByDate;
+  } catch (error) {
+    console.error('Error in getRecentlyEditedFilesWithTreatmentsForDates:', error);
+    return {};
+  }
+}
+
 /*--------------------------------------------------
   Add animal to main list (alphabetically sorted)
 ---------------------------------------------------*/
@@ -2934,6 +3463,7 @@ export async function addAnimalToList(animalType, animalData) {
     }
     
     console.log('Animal ' + animalData.name + ' added successfully to ' + animalType + ' sheet and sorted alphabetically');
+    invalidateCache(spreadsheetId);
     return { success: true };
     
   } catch (error) {
@@ -3005,11 +3535,11 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
     }
 
     // 4) Add headers to the new sheet
-    const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב', 'טיפול כללי', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'סיבת טיפול', 'הערות'];
+    const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב', 'טיפול כללי','טיפול אישי', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'סיבת טיפול', 'הערות'];
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId: newSpreadsheetId,
-      range: `${firstSheetName}!A1:M1`,
+      range: `${firstSheetName}!A1:N1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [headers],
@@ -3136,6 +3666,8 @@ export async function setCaregiverForAnimal(animalType, animalName, caregiverNam
     
     await sheet.saveUpdatedCells();  
     console.log(`Caregiver for animal ${animalName} updated successfully to ${caregiverToAdd}.`);
+    const sheetId = spreadsheetId;
+    invalidateCache(sheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in setCaregiverForAnimal:', error);
@@ -3369,15 +3901,32 @@ async function withSheetsRetry(fn, maxAttempts = 5) {
 export async function getAnimalPhoto(animalType, animalName) {
   try {
     await ensureConfigLoaded();
+    
+    // Check cache first
+    const cacheKey = `${animalType}-${animalName}`;
+    const cached = getFromCache('animal-photos', 'photo', cacheKey);
+    if (cached !== null) {
+      console.log(`✅ Cache HIT for animal photo: ${animalName}`);
+      return cached;
+    }
+    
     console.log(`>> getAnimalPhoto for animal: ${animalName} of type: ${animalType}`);
     
     const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
     if (!spreadsheetId) {
+      // Cache null result
+      setInCache('animal-photos', 'photo', cacheKey, null);
       return null;
     }
 
     const doc = await getDoc(spreadsheetId);
-    return await getAnimalImageFromDoc(doc);
+    const photo = await getAnimalImageFromDoc(doc);
+    
+    // Store in cache
+    setInCache('animal-photos', 'photo', cacheKey, photo);
+    console.log(`💾 Cache SET for animal photo: ${animalName}`);
+    
+    return photo;
   } catch (error) {
     console.error('Error getting animal photo:', error);
     return null;
@@ -3425,6 +3974,7 @@ export async function saveAnimalPhoto(animalType, animalName, photoBase64) {
     await photoSheet.saveUpdatedCells();
     console.log('Photo saved successfully');
     
+    invalidateCache(spreadsheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveAnimalPhoto:', error);
@@ -3463,6 +4013,7 @@ export async function saveDailyEvent(date, event) {
     });
     
     console.log(`Daily event saved for ${date}`);
+    invalidateCache(dailyEventsSheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveDailyEvent:', error);
@@ -3481,6 +4032,13 @@ export async function getDailyEvents(date) {
     const dailyEventsSheetId = process.env.DAILY_EVENTS_ID;
     if (!dailyEventsSheetId) {
       throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
+    }
+    
+    // Check cache first
+    const cacheKey = `date-${date}`;
+    const cached = getFromCache(dailyEventsSheetId, 'daily-events', cacheKey);
+    if (cached) {
+      return cached;
     }
     
     const doc = await getDoc(dailyEventsSheetId);
@@ -3508,6 +4066,10 @@ export async function getDailyEvents(date) {
       .filter(event => event); // Remove empty events
     
     console.log(`Found ${events.length} events for ${date}`);
+    
+    // Store in cache
+    setInCache(dailyEventsSheetId, 'daily-events', cacheKey, events);
+    
     return events;
   } catch (error) {
     console.error('Error in getDailyEvents:', error);
@@ -3555,6 +4117,7 @@ export async function deleteDailyEvent(date, event) {
     if (rowToDelete) {
       await rowToDelete.delete();
       console.log(`Deleted event: ${event} for date: ${date}`);
+      invalidateCache(dailyEventsSheetId);
       return { success: true };
     } else {
       console.log(`Event not found: ${event} for date: ${date}`);
@@ -3607,6 +4170,7 @@ export async function saveCaregiverNote(caregiverName, date, note) {
     });
     
     console.log(`Caregiver note saved for ${caregiverName} on ${date}`);
+    invalidateCache(caregiverNotesSheetId);
     return { success: true };
   } catch (error) {
     console.error('Error in saveCaregiverNote:', error);
@@ -3627,12 +4191,21 @@ export async function getCaregiverNotes(caregiverName, date) {
       throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
     }
     
+    // Check cache first
+    const cacheKey = `${caregiverName}-${date}`;
+    const cached = getFromCache(caregiverNotesSheetId, 'caregiver-notes', cacheKey);
+    if (cached) {
+      return cached;
+    }
+    
     const doc = await getDoc(caregiverNotesSheetId);
     
     // Find the caregiver's tab
     const caregiverSheet = doc.sheetsByTitle[caregiverName];
     if (!caregiverSheet) {
       console.log(`No sheet found for caregiver: ${caregiverName}`);
+      // Cache empty result
+      setInCache(caregiverNotesSheetId, 'caregiver-notes', cacheKey, []);
       return [];
     }
     
@@ -3655,6 +4228,10 @@ export async function getCaregiverNotes(caregiverName, date) {
       .filter(note => note); // Remove empty notes
     
     console.log(`Found ${notes.length} notes for ${caregiverName} on ${date}`);
+    
+    // Store in cache
+    setInCache(caregiverNotesSheetId, 'caregiver-notes', cacheKey, notes);
+    
     return notes;
   } catch (error) {
     console.error('Error in getCaregiverNotes:', error);
@@ -3705,6 +4282,7 @@ export async function deleteCaregiverNote(caregiverName, date, note) {
     if (rowToDelete) {
       await rowToDelete.delete();
       console.log(`Deleted note for ${caregiverName}: ${note} on ${date}`);
+      invalidateCache(caregiverNotesSheetId);
       return { success: true };
     } else {
       console.log(`Note not found for ${caregiverName}: ${note} on ${date}`);

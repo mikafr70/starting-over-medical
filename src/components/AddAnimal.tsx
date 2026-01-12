@@ -141,7 +141,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-4">
           {/* Animal Type */}
           <div className="space-y-1">
-            <Label className="text-right block text-sm">סוג חיה *</Label>
+            <Label dir="rtl" className="text-right block text-sm">סוג חיה *</Label>
             <Select value={formData.animalType} onValueChange={(val) => handleChange('animalType', val)}>
               <SelectTrigger className="text-right h-9">
                 <SelectValue placeholder="בחר סוג חיה" />
@@ -159,7 +159,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
           {/* Name and ID */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-right block text-sm">שם *</Label>
+              <Label dir="rtl" className="text-right block text-sm">שם *</Label>
               <Input
                 value={formData.name}
                 onChange={(e) => handleChange('name', e.target.value)}
@@ -168,7 +168,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-right block text-sm">שבב</Label>
+              <Label dir="rtl" className="text-right block text-sm">שבב</Label>
               <Input
                 value={formData.id}
                 onChange={(e) => handleChange('id', e.target.value)}
@@ -181,7 +181,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
           {/* All other fields from AnimalProfile */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-right block text-sm">מין</Label>
+              <Label dir="rtl" className="text-right block text-sm">מין</Label>
               <Input
                 value={formData.sex}
                 onChange={(e) => handleChange('sex', e.target.value)}
@@ -190,7 +190,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-right block text-sm">מיקום</Label>
+              <Label dir="rtl" className="text-right block text-sm">מיקום</Label>
               <Input
                 value={formData.location}
                 onChange={(e) => handleChange('location', e.target.value)}
@@ -202,7 +202,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-right block text-sm">מטפל</Label>
+              <Label dir="rtl" className="text-right block text-sm">מטפל</Label>
               <Input
                 value={formData.in_treatment}
                 onChange={(e) => handleChange('in_treatment', e.target.value)}
@@ -211,7 +211,7 @@ export function AddAnimal({ open, onOpenChange, onSuccess }: AddAnimalProps) {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-right block text-sm">שבב נוסף</Label>
+              <Label dir="rtl" className="text-right block text-sm">שבב נוסף</Label>
               <Input
                 value={formData.id2}
                 onChange={(e) => handleChange('id2', e.target.value)}

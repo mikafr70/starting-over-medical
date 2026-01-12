@@ -1,4 +1,4 @@
-import { authenticateCaregiver, ensureConfigLoaded } from '@/src/lib/sheets';
+import { authenticateCaregiver, ensureConfigLoaded, clearAllCache } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -42,6 +42,10 @@ export async function POST(req) {
     
     if (result.success) {
       console.log("Login successful for:", email);
+      
+      // Clear all cache on successful login
+      clearAllCache();
+      
       return new Response(JSON.stringify({ 
         success: true, 
         caregiverName: result.caregiverName,

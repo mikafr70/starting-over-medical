@@ -351,7 +351,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Animal Type Selection */}
                 <div className="space-y-2">
-                  <Label htmlFor="animal-type" className="text-right">סוג חיה *</Label>
+                  <Label htmlFor="animal-type" dir="rtl" className="text-right block">סוג חיה *</Label>
                   <Select value={selectedAnimalType} onValueChange={handleTypeChange} required>
                     <SelectTrigger id="animal-type" className="text-right">
                       <SelectValue placeholder="בחר סוג חיה" />
@@ -369,7 +369,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 {/* Animal Selection - Shows after type is selected */}
                 {selectedAnimalType && (
                   <div className="space-y-2">
-                    <Label htmlFor="animal" className="text-right">בחר חיה *</Label>
+                    <Label htmlFor="animal" dir="rtl" className="text-right block">בחר חיה *</Label>
                     <input
                       type="text"
                       className="w-full border rounded px-2 py-1 mb-2"
@@ -407,7 +407,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 )}
 
                 <div className="space-y-2 md:col-span-1">
-                  <Label htmlFor="start-date" className="text-right">תאריך התחלה *</Label>
+                  <Label htmlFor="start-date" dir="rtl" className="text-right block">תאריך התחלה *</Label>
                   <Input
                     type="date"
                     id="start-date"
@@ -418,7 +418,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 </div>
 
                 <div className={cn("space-y-2", !selectedAnimalType && "md:col-start-2")}>
-                  <Label htmlFor="treatment-type" className="text-right">סיבת טיפול (אופציונלי)</Label>
+                  <Label htmlFor="treatment-type" dir="rtl" className="text-right block">סיבת טיפול (אופציונלי)</Label>
                   <Select value={treatmentType} onValueChange={(val) => {
                     setTreatmentType(val);
                     if (val !== 'other') setManualCase('');
@@ -440,7 +440,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 {/* Manual case input when "other" is selected */}
                 {treatmentType === 'other' && (
                   <div className="space-y-2">
-                    <Label htmlFor="manual-case" className="text-right">הזן סיבת טיפול (אופציונלי)</Label>
+                    <Label htmlFor="manual-case" dir="rtl" className="text-right block">הזן סיבת טיפול (אופציונלי)</Label>
                     <Input
                       id="manual-case"
                       type="text"
@@ -453,7 +453,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="caregiver" className="text-right">שם המטפל/ת</Label>
+                  <Label htmlFor="caregiver" dir="rtl" className="text-right block">שם המטפל/ת</Label>
                   <Select value={caregiver} onValueChange={setCaregiver}>
                     <SelectTrigger id="caregiver">
                       <SelectValue placeholder="בחר מטפל/ת (אופציונלי)" />

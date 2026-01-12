@@ -24,7 +24,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="he" dir="rtl">
-      <body>{children}</body>
+      <body dir="rtl" className="text-right block">{children}</body>
     </html>
   );
 }

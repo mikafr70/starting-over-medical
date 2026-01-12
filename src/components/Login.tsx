@@ -52,9 +52,41 @@ export function Login({ onLogin }: LoginProps) {
     }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin(registerName || "מטפל/ת");
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: registerName,
+          email: registerEmail,
+          password: registerPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success('נרשמת בהצלחה! כעת תוכל להתחבר.');
+        // Switch to login tab
+        const loginTab = document.querySelector('[value="login"]') as HTMLElement;
+        loginTab?.click();
+        // Pre-fill login email
+        setLoginEmail(registerEmail);
+      } else {
+        toast.error(data.error || 'שגיאה בהרשמה. נסה שוב.');
+      }
+    } catch (error) {
+      console.error('Register error:', error);
+      toast.error('שגיאה בהרשמה. נסה שוב.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -132,8 +164,8 @@ export function Login({ onLogin }: LoginProps) {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="space-y-2 text-right">
-                    <Label htmlFor="name">שם מלא</Label>
+                  <div dir="rtl" className="text-right block">
+                    <Label htmlFor="name" dir="rtl" className="text-right block">שם מלא</Label>
                     <Input
                       id="name"
                       type="text"
@@ -143,8 +175,8 @@ export function Login({ onLogin }: LoginProps) {
                       required className="text-right"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="register-email">אימייל</Label>
+                  <div dir="rtl" className="text-right block">
+                    <Label htmlFor="register-email" dir="rtl" className="text-right block">אימייל</Label>
                     <Input
                       id="register-email"
                       type="email"
@@ -152,10 +184,12 @@ export function Login({ onLogin }: LoginProps) {
                       value={registerEmail}
                       onChange={(e) => setRegisterEmail(e.target.value)}
                       required
+                      className="text-right"
+                      dir="rtl"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="register-password">סיסמה</Label>
+                  <div dir="rtl" className="text-right block">
+                    <Label htmlFor="register-password" dir="rtl" className="text-right block">סיסמה</Label>
                     <Input
                       id="register-password"
                       type="password"
@@ -163,10 +197,20 @@ export function Login({ onLogin }: LoginProps) {
                       value={registerPassword}
                       onChange={(e) => setRegisterPassword(e.target.value)}
                       required
+                      disabled={isLoading}
+                      className="text-right"
+                      dir="rtl"
                     />
                   </div>
-                  <Button type="submit" className="w-full">
-                    הירשם
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                        נרשם...
+                      </>
+                    ) : (
+                      'הירשם'
+                    )}
                   </Button>
                 </form>
               </CardContent>

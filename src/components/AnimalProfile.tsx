@@ -39,7 +39,7 @@ export function TreatmentCheckboxes({
     <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
 
       {/* Morning */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         <input
           type="checkbox"
           checked={treatments.morning === 'TRUE'}
@@ -50,7 +50,7 @@ export function TreatmentCheckboxes({
       </label>
 
       {/* Noon */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         <input
           type="checkbox"
           checked={treatments.noon === 'TRUE'}
@@ -61,7 +61,7 @@ export function TreatmentCheckboxes({
       </label>
 
       {/* Evening */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         <input
           type="checkbox"
           checked={treatments.evening === 'TRUE'}

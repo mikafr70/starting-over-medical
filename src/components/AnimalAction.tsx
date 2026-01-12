@@ -147,7 +147,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
         <form onSubmit={handleSubmit} className="space-y-3 mt-2 text-right" dir="rtl">
           {/* Action Type Dropdown */}
           <div className="space-y-2">
-            <Label htmlFor="action-type" className="text-right block">סוג פעולה</Label>
+            <Label htmlFor="action-type" dir="rtl" className="text-right block">סוג פעולה</Label>
             <Select
               value={selectedAction}
               onValueChange={(value) => setSelectedAction(value as ActionType)}
@@ -169,7 +169,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
           {selectedAction && (
             <>
               <div className="space-y-2">
-                <Label htmlFor="animal-name">שם החיה</Label>
+                <Label htmlFor="animal-name" dir="rtl" className="text-right block">שם החיה</Label>
                 <Input
                   id="animal-name"
                   value={animalName}
@@ -181,7 +181,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="gender">מין</Label>
+                <Label htmlFor="gender" dir="rtl" className="text-right block">מין</Label>
                 <Select
                   value={gender}
                   onValueChange={(value) => setGender(value)}
@@ -196,7 +196,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="date">תאריך</Label>
+                <Label htmlFor="date" dir="rtl" className="text-right block">תאריך</Label>
                 <Input
                 id="date"
                 type="date"
@@ -209,7 +209,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
 
               </div>
               <div className="space-y-2">
-                <Label htmlFor="animal-type">סוג החיה</Label>
+                <Label htmlFor="animal-type" dir="rtl" className="text-right block">סוג החיה</Label>
                 <Select
                   value={animalType}
                   onValueChange={(value) => setAnimalType(value)}
@@ -232,7 +232,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="chip-id">שבב</Label>
+                <Label htmlFor="chip-id" dir="rtl" className="text-right block">שבב</Label>
                 <Input
                   id="chip-id"
                   value={chipId}
@@ -243,7 +243,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="shelter-location">מתחם במקלט</Label>
+                <Label htmlFor="shelter-location" dir="rtl" className="text-right block">מתחם במקלט</Label>
                 <Input
                   id="shelter-location"
                   value={shelterLocation}
@@ -260,7 +260,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
           {selectedAction === "אימוץ" && (
             <>
               <div className="space-y-2">
-                <Label htmlFor="adopter-name">שם מאמץ</Label>
+                <Label htmlFor="adopter-name" dir="rtl" className="text-right block">שם מאמץ</Label>
                 <Input
                   id="adopter-name"
                   value={adopter_name}
@@ -271,7 +271,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="phone">מספר טלפון</Label>
+                <Label htmlFor="phone" dir="rtl" className="text-right block">מספר טלפון</Label>
                 <Input
                   id="phone"
                   value={phoneNumber}
@@ -282,7 +282,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="location">מיקום</Label>
+                <Label htmlFor="location" dir="rtl" className="text-right block">מיקום</Label>
                 <Input
                   id="location"
                   value={location}
@@ -297,7 +297,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
 
           {selectedAction === "פטירה" && (
             <div className="space-y-2">
-              <Label htmlFor="reason">סיבה</Label>
+              <Label htmlFor="reason" dir="rtl" className="text-right block">סיבה</Label>
               <Input
                 id="reason"
                 value={reason}
@@ -312,7 +312,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
           {selectedAction === "קליטה" && (
             <>
               <div className="space-y-2">
-                <Label htmlFor="description">תיאור</Label>
+                <Label htmlFor="description" dir="rtl" className="text-right block">תיאור</Label>
                 <Input
                   id="description"
                   value={description}
@@ -323,7 +323,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="background">רקע</Label>
+                <Label htmlFor="background" dir="rtl" className="text-right block">רקע</Label>
                 <Input
                   id="background"
                   value={background}
@@ -338,7 +338,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
 
           {selectedAction === "המתת חסד" && (
             <div className="space-y-2">
-              <Label htmlFor="reason-euthanasia">סיבה</Label>
+              <Label htmlFor="reason-euthanasia" dir="rtl" className="text-right block">סיבה</Label>
               <Input
                 id="reason-euthanasia"
                 value={reason}
@@ -353,7 +353,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
           {selectedAction === "המלטה" && (
             <>
               <div className="space-y-2">
-                <Label htmlFor="description">תיאור</Label>
+                <Label htmlFor="description" dir="rtl" className="text-right block">תיאור</Label>
                 <Input
                   id="description"
                   value={description}
@@ -364,7 +364,7 @@ export function AnimalAction({ open, onOpenChange, onSuccess }: AnimalActionProp
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="mother-name">שם אם</Label>
+                <Label htmlFor="mother-name" dir="rtl" className="text-right block">שם אם</Label>
                 <Input
                   id="mother-name"
                   value={motherName}

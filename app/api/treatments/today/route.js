@@ -1,5 +1,5 @@
 import { time } from 'console';
-import { getRecentlyEditedFilesInFolderWithTreatmentsToday, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded, getAnimalPhoto} from '../../../../src/lib/sheets.js';
+import { getRecentlyEditedFilesWithTreatmentsForDates, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded, getAnimalPhoto} from '../../../../src/lib/sheets.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // Set to 5 minutes (requires Vercel Pro)
@@ -39,9 +39,13 @@ export async function GET() {
     ];
 
     // Process animal types in parallel with limited concurrency
+    // Filter to only include donkeys, horses, sheep, and goats
+    const allowedTypes = ['donkey', 'horse', 'sheep', 'goat'];
     const animalTypes = Object.keys(ANIMAL_TREATMENT_SHEETS()).filter(
-      type => ANIMAL_TREATMENT_SHEETS()[type].folderId
+      type => allowedTypes.includes(type) && ANIMAL_TREATMENT_SHEETS()[type].folderId
     );
+    
+    console.log(`Processing animal types: ${animalTypes.join(', ')}`);
     
     // Process ALL animal types in parallel to maximize speed
     const CONCURRENT_ANIMAL_TYPES = animalTypes.length; // Process all at once
@@ -52,27 +56,24 @@ export async function GET() {
       await Promise.all(batch.map(async (animalType) => {
         console.log(`Fetching treatments for ${animalType} from folder ${ANIMAL_TREATMENT_SHEETS()[animalType].folderId}`);
         
-        // Fetch all three dates in parallel for this animal type
-        const dateResults = await Promise.all(datesToFetch.map(async ({ date, label }) => {
-          try {
-            const result = await getRecentlyEditedFilesInFolderWithTreatmentsToday(
-              ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
-              date
-            );
+        // Fetch all three dates in ONE call per animal type (optimized)
+        try {
+          const resultsByDate = await getRecentlyEditedFilesWithTreatmentsForDates(
+            ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
+            datesToFetch.map(d => d.date)
+          );
+          
+          // Process results for each date
+          for (const { date, label } of datesToFetch) {
+            const dateStr = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+            const result = resultsByDate[dateStr] || [];
+            
             console.log(`Received ${result.length} entries for ${animalType} on ${label}`);
-            return { result, date, label, animalType };
-          } catch (error) {
-            console.error(`Error fetching ${animalType} for ${label}:`, error.message);
-            return { result: [], date, label, animalType };
-          }
-        }));
-        
-        // Process results for this animal type
-        for (const { result, date, label, animalType } of dateResults) {
-          // The function returns an array like [fileName1, treatmentTimes1, fileName2, treatmentTimes2, ...]
-          for (let i = 0; i < result.length; i += 2) {
-            const fileName = result[i];
-            const treatmentTimes = result[i + 1] || [];
+            
+            // The function returns an array like [fileName1, treatmentTimes1, fileName2, treatmentTimes2, ...]
+            for (let i = 0; i < result.length; i += 2) {
+              const fileName = result[i];
+              const treatmentTimes = result[i + 1] || [];
             
             if (fileName && treatmentTimes.length > 0) {
               // Extract animal name from filename
@@ -133,7 +134,10 @@ export async function GET() {
                 allTreatments.push(treatment);
               });
             }
+            }
           }
+        } catch (error) {
+          console.error(`Error fetching ${animalType}:`, error.message);
         }
       }));
     }

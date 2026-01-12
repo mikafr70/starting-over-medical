@@ -123,7 +123,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-right">בחר סוג חיה</Label>
+                <Label dir="rtl" className="text-right block">בחר סוג חיה</Label>
                 <Select value={selectedType} onValueChange={handleTypeChange}>
                   <SelectTrigger className="text-right">
                     <SelectValue placeholder="בחר סוג חיה" />
@@ -137,7 +137,7 @@ export function MedicalRecords({ onOpenProfile, onBack }: MedicalRecordsProps) {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-right">בחר חיה</Label>
+                <Label dir="rtl" className="text-right block">בחר חיה</Label>
                 <input
                   type="text"
                   className="w-full border rounded px-2 py-1 mb-2"
