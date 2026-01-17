@@ -1,5 +1,5 @@
 {
-  "name": "Rehabilitation Farm App Design",
+  "name": "rehabilitation-farm-app-design",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -61,5 +61,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
-  }
+  },
+  "description": "This is a code bundle for Rehabilitation Farm App Design. The original project is available at https://www.figma.com/design/qUHXK1JEO1WdfKvd3LPImo/Rehabilitation-Farm-App-Design.",
+  "main": "fix-aliases.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mikafr70/starting-over-medical.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mikafr70/starting-over-medical/issues"
+  },
+  "homepage": "https://github.com/mikafr70/starting-over-medical#readme"
 }

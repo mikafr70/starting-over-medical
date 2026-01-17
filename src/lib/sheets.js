@@ -446,18 +446,13 @@ async function findSpreadsheetInFolder(animalType, animalName) {
     
     //console.log(`Searching for animal: "${animalName}", extracted name: "${nameOnly}"`);
     
-    // Calculate date 30 days ago in RFC 3339 format
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 7);
-    const dateFilter = thirtyDaysAgo.toISOString();
-    
-    // Fetch all files with pagination - only files modified in last 30 days
+    // Fetch all files with pagination
     let allFiles = [];
     let pageToken = null;
     
     do {
       const response = await drive.files.list({
-        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and modifiedTime > '${dateFilter}'`,
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
         fields: 'nextPageToken, files(id, name, modifiedTime)',
         spaces: 'drive',
         pageSize: 1000, // Max allowed by API
@@ -467,7 +462,9 @@ async function findSpreadsheetInFolder(animalType, animalName) {
       allFiles = allFiles.concat(response.data.files || []);
       pageToken = response.data.nextPageToken;
     } while (pageToken);   
-      console.log(`Found ${allFiles[0]} total files in folder`);
+      console.log(`Found ${allFiles.length} total files in folder`);
+      console.log(`Searching for animal: "${animalName}" (nameOnly: "${nameOnly}")`);
+      console.log(`First 10 file names:`, allFiles.slice(0, 10).map(f => f.name));
  
       // Filter to find exact match: filename format is "עותק של [name] [ID]"
       const exactMatch = allFiles.find(file => {
@@ -476,7 +473,7 @@ async function findSpreadsheetInFolder(animalType, animalName) {
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
       // Extract the name part (first word after removing prefix)
       const fileNameOnly = nameWithoutPrefix.split(' ')[0];
-      console.log(`Comparing file name: "${fileNameOnly}" with animal name: "${nameOnly}"`);
+      //console.log(`Comparing: "${fileNameOnly}" === "${nameOnly}" | Full: "${file.name}"`);
       // Match if the name part matches exactly
       const isMatch = fileNameOnly === nameOnly;
       if (isMatch) {
@@ -555,19 +552,14 @@ async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
 
     //console.log(`Searching for animal: "${animalName}", extracted name: "${nameOnly}"`);
     
-    // Calculate date 30 days ago in RFC 3339 format
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 7);
-    const dateFilter = thirtyDaysAgo.toISOString();
-    
-    // Fetch all files with pagination - only files modified in last 30 days
+    // Fetch all files with pagination
     let allFiles = [];
     let pageToken = null;
     const matchedFiles = [];
     
     do {
       const response = await drive.files.list({
-        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and modifiedTime > '${dateFilter}'`,
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet'`,
         fields: 'nextPageToken, files(id, name, modifiedTime)',
         spaces: 'drive',
         pageSize: 1000, // Max allowed by API
@@ -1824,6 +1816,9 @@ export async function getCaregiverNameFromSheet(email) {
   try {
     console.log('>>> Retreive Cargiver name for email:', email);
     await ensureConfigLoaded();
+    //console.log('------------------------------------------------------');
+    //await addGeneralTreatmentColumnWithValidations();
+    //return ''; // Temporarily disable caregiver name retrieval
     const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
     if (!spreadsheetId) throw new Error('Could not find caregiver sheet' );
     
@@ -3345,7 +3340,7 @@ export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, tar
     
     const drive = getDriveClient();
     const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);
     const startDateISO = twoWeeksAgo.toISOString();
     
     // Convert Date objects to strings
@@ -3676,14 +3671,28 @@ export async function setCaregiverForAnimal(animalType, animalName, caregiverNam
 }
 
 //--------------------------------------------------
-//  Add general treatment coulmn after evening coulmn with validations
+//  Add general treatment coulmn and personal treatment coulmn after evening coulmn without validations
 //---------------------------------------------------
+let __addGeneralTreatmentColumnsInFlight = false;
+const __processedGeneralTreatmentColumnSheets = new Set();
+
 export async function addGeneralTreatmentColumnWithValidations() {
   try {
+    if (__addGeneralTreatmentColumnsInFlight) {
+      console.log('addGeneralTreatmentColumnWithValidations is already running - skipping duplicate invocation');
+      return { success: true, skipped: true, reason: 'already-running' };
+    }
+
+    __addGeneralTreatmentColumnsInFlight = true;
     await ensureConfigLoaded();
+
+    const processedThisRun = new Set();
 
     for (const animalType of Object.keys(ANIMAL_TREATMENT_SHEETS())) {
       const folderId = ANIMAL_TREATMENT_SHEETS()[animalType].folderId;
+      if (!folderId) {
+        continue;
+      }
       console.log(`Processing folder for animal type: ${animalType}, folderId: ${folderId}`);
 
       const drive = getDriveClient();
@@ -3702,6 +3711,18 @@ export async function addGeneralTreatmentColumnWithValidations() {
         console.log(`Found ${files.length} files in this page for ${animalType}`);
 
         for (const file of files) {
+          if (!file?.id) {
+            continue;
+          }
+
+          if (processedThisRun.has(file.id) || __processedGeneralTreatmentColumnSheets.has(file.id)) {
+            console.log(`Skipping duplicate sheet in this run: ${file.name} (${file.id})`);
+            continue;
+          }
+
+          processedThisRun.add(file.id);
+          __processedGeneralTreatmentColumnSheets.add(file.id);
+
           console.log(`Processing file: ${file.name} (${file.id})`);
           await addGeneralTreatmentColumnToSheet(file.id);
           // your existing pause (you can tune this later)
@@ -3716,10 +3737,12 @@ export async function addGeneralTreatmentColumnWithValidations() {
   } catch (error) {
     console.error('Error in addGeneralTreatmentColumnWithValidations:', error);
     throw error;
+  } finally {
+    __addGeneralTreatmentColumnsInFlight = false;
   }
 }
 /*-------------------------------------------------- 
-  Add general treatment coulmn after evening coulmn with validations to specific sheet
+  Add general treatment coulmn and personal treatment coulmn after evening coulmn without validations to specific sheet
 ---------------------------------------------------*/
 export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
   try {
@@ -3740,54 +3763,145 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
     
     const headers = headerResponse.data.values?.[0] || [];
     const generalTreatmentIndices = [];
+    const personalTreatmentIndices = [];
     
     headers.forEach((header, index) => {
       if (header && header.trim() === 'טיפול כללי') {
         generalTreatmentIndices.push(index);
       }
+      if (header && header.trim() === 'טיפול אישי') {
+        personalTreatmentIndices.push(index);
+      }
     });
     
     console.log(`Found ${generalTreatmentIndices.length} "טיפול כללי" columns at indices:`, generalTreatmentIndices);
-    
+    console.log(`Found ${personalTreatmentIndices.length} "טיפול אישי" columns at indices:`, personalTreatmentIndices); 
+
     // If multiple columns exist, delete all except the first one
     if (generalTreatmentIndices.length > 1) {
       console.log(`Deleting ${generalTreatmentIndices.length - 1} duplicate "טיפול כללי" columns`);
       
-      // Delete columns in reverse order to maintain correct indices
-      const deleteRequests = [];
-      for (let i = generalTreatmentIndices.length - 1; i >= 1; i--) {
-        const colIndex = generalTreatmentIndices[i];
-        deleteRequests.push({
-          deleteDimension: {
-            range: {
-              sheetId: sheetId,
-              dimension: 'COLUMNS',
-              startIndex: colIndex,
-              endIndex: colIndex + 1
-            }
+      // Delete columns one at a time, re-fetching headers after each deletion
+      // to recalculate indices and prevent stale index issues
+      let deletedCount = 0;
+      
+      while (true) {
+        // Re-fetch headers to get current state
+        const currentHeaderResponse = await sheetsApi.spreadsheets.values.get({
+          spreadsheetId,
+          range: `${sheet.title}!1:1`
+        });
+        
+        const currentHeaders = currentHeaderResponse.data.values?.[0] || [];
+        const currentGeneralIndices = [];
+        
+        currentHeaders.forEach((header, index) => {
+          if (header && header.trim() === 'טיפול כללי') {
+            currentGeneralIndices.push(index);
           }
         });
-      }
-      
-      if (deleteRequests.length > 0) {
+        
+        if (currentGeneralIndices.length <= 1) {
+          console.log('Only one or zero "טיפול כללי" columns remain, stopping deletion');
+          break;
+        }
+        
+        // Delete the LAST occurrence (highest index)
+        const colIndexToDelete = currentGeneralIndices[currentGeneralIndices.length - 1];
+        console.log(`Deleting duplicate "טיפול כללי" column at index: ${colIndexToDelete} (${currentGeneralIndices.length} total found)`);
+        
         await sheetsApi.spreadsheets.batchUpdate({
           spreadsheetId,
-          resource: { requests: deleteRequests }
+          resource: {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId: sheetId,
+                  dimension: 'COLUMNS',
+                  startIndex: colIndexToDelete,
+                  endIndex: colIndexToDelete + 1
+                }
+              }
+            }]
+          }
         });
-        console.log(`Deleted ${deleteRequests.length} duplicate columns`);
+        
+        deletedCount++;
+        console.log(`Deleted duplicate column ${deletedCount}`);
+        
+        // Small delay to ensure API state is consistent
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      // Column already exists, no need to add it
-      return { success: true, message: 'Removed duplicates, kept first column' };
+      console.log(`Deleted ${deletedCount} duplicate general treatment columns`);
+    }
+    // If multiple personal treatment columns exist, delete all except the first one
+    if (personalTreatmentIndices.length > 1) {
+      console.log(`Deleting ${personalTreatmentIndices.length - 1} duplicate "טיפול אישי" columns`);
+      
+      // Delete columns one at a time, re-fetching headers after each deletion
+      // to recalculate indices and prevent stale index issues
+      let deletedCount = 0;
+      
+      while (true) {
+        // Re-fetch headers to get current state
+        const currentHeaderResponse = await sheetsApi.spreadsheets.values.get({
+          spreadsheetId,
+          range: `${sheet.title}!1:1`
+        });
+        
+        const currentHeaders = currentHeaderResponse.data.values?.[0] || [];
+        const currentPersonalIndices = [];
+        
+        currentHeaders.forEach((header, index) => {
+          if (header && header.trim() === 'טיפול אישי') {
+            currentPersonalIndices.push(index);
+          }
+        });
+        
+        if (currentPersonalIndices.length <= 1) {
+          console.log('Only one or zero "טיפול אישי" columns remain, stopping deletion');
+          break;
+        }
+        
+        // Delete the LAST occurrence (highest index)
+        const colIndexToDelete = currentPersonalIndices[currentPersonalIndices.length - 1];
+        console.log(`Deleting duplicate "טיפול אישי" column at index: ${colIndexToDelete} (${currentPersonalIndices.length} total found)`);
+        
+        await sheetsApi.spreadsheets.batchUpdate({
+          spreadsheetId,
+          resource: {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId: sheetId,
+                  dimension: 'COLUMNS',
+                  startIndex: colIndexToDelete,
+                  endIndex: colIndexToDelete + 1
+                }
+              }
+            }]
+          }
+        });
+        
+        deletedCount++;
+        console.log(`Deleted duplicate column ${deletedCount}`);
+        
+        // Small delay to ensure API state is consistent
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      console.log(`Deleted ${deletedCount} duplicate personal treatment columns`);
     }
     
     // If exactly one column exists, we're done
-    if (generalTreatmentIndices.length === 1) {
-      console.log('General treatment column already exists at index:', generalTreatmentIndices[0]);
-      return { success: true, message: 'Column already exists' };
+    if (generalTreatmentIndices.length === 1 && personalTreatmentIndices.length === 1) {
+      console.log('General treatment column already exists at index:', generalTreatmentIndices[0], 'and personal treatment column at index:', personalTreatmentIndices[0]);
+      return { success: true, message: 'Columns already exist' };
     }
+
     
-    // No column exists, add it
+    // No columns exists, add it
     // 1) Insert new column after evening (column index 4)
     await withSheetsRetry(() => sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,  
@@ -3820,35 +3934,38 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
     }));
     console.log('Set header for new general treatment column'); 
     
-    // 3) Add data validation to new column (checkboxes)
+    // 3) Insert another new column after the general treatment column
     await withSheetsRetry(() => sheetsApi.spreadsheets.batchUpdate({
-      spreadsheetId,
+      spreadsheetId,  
       resource: {
         requests: [
-          {
-            setDataValidation: {
+          { 
+            insertDimension: {
               range: {
                 sheetId: sheetId,
-                startRowIndex: 1,
-                endRowIndex: sheet.rowCount,
-                startColumnIndex: 5,
-                endColumnIndex: 6
+                dimension: 'COLUMNS',
+                startIndex: 6,
+                endIndex: 7
               },
-              rule: {
-                condition: {
-                  type: 'BOOLEAN'
-                },
-                inputMessage: 'סמן אם הטיפול הכללי בוצע',
-                strict: true,
-                showCustomUi: true  
-              }
+              inheritFromBefore: true
             }
           }
         ]
       }
     }));
-    console.log('Added data validation (checkboxes) to general treatment column'); 
-    return { success: true, message: 'Column created' };
+    console.log('Inserted new column after general treatment column');
+    // 4) Set header for personal treatment column
+    await withSheetsRetry(() => sheetsApi.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheet.title}!G1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['טיפול אישי']]  
+      }
+    }));
+    console.log('Set header for new personal treatment column'); 
+    console.log('Successfully added general and personal treatment columns to sheet ID:', spreadsheetId);
+    return { success: true };
   } catch (error) {
     console.error('Error in addGeneralTreatmentColumnWithValidations:', error);
     throw error;

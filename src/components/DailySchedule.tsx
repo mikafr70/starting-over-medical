@@ -129,7 +129,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     }
   }, [selectedDay]);
 
-  // Fetch treatments from API
+  // Fetch treatments from API with streaming support
   useEffect(() => {
     const fetchTreatments = async () => {
       // Prevent duplicate fetches
@@ -143,52 +143,92 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         setLoading(true);
         setError(null);
         
-        console.log('🚀 Making API call for 3 days of treatments...');
-        const response = await fetch('/api/treatments/today');
-        const data = await response.json();
+        console.log('🚀 Starting streaming fetch...');
+        const response = await fetch('/api/treatments/today?stream=true');
         
-        if (data.success) {
-          
-          console.log('Fetched treatments data:', data);
-          // Convert API data to our Treatment interface
-          const formattedTreatments: Treatment[] = data.treatments.map((treatment: any) => ({
-            id: Math.abs(hashCode(treatment.id)), // Convert string ID to number
-            animalName: treatment.animalName,
-            animalType: treatment.animalType,
-            animalImage: treatment.animalImage,
-            treatmentType: treatment.treatmentType,
-            medicalCase: treatment.medicalCase || 'ללא תיאור',
-            time: treatment.time,
-            timeSlot: treatment.timeSlot,
-            caregiver: treatment.caregiver,
-            isCompleted: treatment.isCompleted || false,
-            treatmentDate: treatment.treatmentDate,
-            dateLabel: treatment.dateLabel
-          }));
-          
-          console.log('Formatted treatments with dates:', formattedTreatments.slice(0, 3));
-          
-          setTreatments(formattedTreatments);
-          
-          // Initialize completed treatments from the API data
-          const initialCompleted = new Set<string>();
-          formattedTreatments.forEach(treatment => {
-            if (treatment.isCompleted) {
-              const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
-              initialCompleted.add(key);
-            }
-          });
-          setCompletedTreatments(initialCompleted);
-          
-          console.log(`Loaded ${formattedTreatments.length} treatments from Google Sheets`);
-          console.log(`${initialCompleted.size} treatments already marked as completed`);
-        } else {
-          setError(data.error || 'Failed to fetch treatments');
-          console.error('Failed to fetch treatments:', data.error);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
+        
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        
+        if (!reader) {
+          throw new Error('Stream not available');
+        }
+        
+        let buffer = '';
+        const allTreatments: Treatment[] = [];
+        const initialCompleted = new Set<string>();
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            try {
+              const chunk = JSON.parse(line);
+              
+              // Handle ping messages
+              if (chunk.type === 'ping') {
+                console.log('📡 Received ping:', chunk.message);
+                continue;
+              }
+              
+              if (chunk.complete) {
+                console.log(`✅ Complete - ${chunk.total} treatments`);
+                setLoading(false);
+                continue;
+              }
+              
+              if (chunk.treatments && chunk.treatments.length > 0) {
+                const formattedChunk: Treatment[] = chunk.treatments.map((treatment: any) => ({
+                  id: Math.abs(hashCode(treatment.id)),
+                  animalName: treatment.animalName,
+                  animalType: treatment.animalType,
+                  animalImage: treatment.animalImage,
+                  treatmentType: treatment.treatmentType,
+                  medicalCase: treatment.medicalCase || 'ללא תיאור',
+                  time: treatment.time,
+                  timeSlot: treatment.timeSlot,
+                  caregiver: treatment.caregiver,
+                  isCompleted: treatment.isCompleted || false,
+                  treatmentDate: treatment.treatmentDate,
+                  dateLabel: treatment.dateLabel
+                }));
+                
+                allTreatments.push(...formattedChunk);
+                
+                formattedChunk.forEach(treatment => {
+                  if (treatment.isCompleted) {
+                    const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
+                    initialCompleted.add(key);
+                  }
+                });
+                
+                // Update UI immediately with new data
+                setTreatments([...allTreatments]);
+                setCompletedTreatments(new Set(initialCompleted));
+                
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`📦 [${timestamp}] +${formattedChunk.length} (total: ${allTreatments.length})`);
+              }
+            } catch (parseError) {
+              console.error('Parse error:', parseError);
+            }
+          }
+        }
+        
       } catch (err) {
-        setError('Failed to connect to server');
         console.error('Error fetching treatments:', err);
+        setError('Failed to load treatments');
       } finally {
         setLoading(false);
         fetchInProgressRef.current = false;
@@ -592,11 +632,19 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
           <p className="text-muted-foreground text-right">טיפולים מתוכננים לפי יום ושעה</p>
         </div>
 
-        {/* Loading State */}
-        {loading && (
+        {/* Loading State - Show spinner but don't hide content */}
+        {loading && treatments.length === 0 && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
-            <span className="ml-2"></span>
+            <span className="ml-2">טוען טיפולים...</span>
+          </div>
+        )}
+        
+        {/* Loading indicator when streaming (show count) */}
+        {loading && treatments.length > 0 && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+            <span className="text-blue-700">טוען... ({treatments.length} טיפולים נטענו)</span>
           </div>
         )}
 
@@ -607,11 +655,10 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
           </div>
         )}
 
-        {/* Full Width Schedule */}
-        {!loading && (
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-            {/* Treatments Schedule - 8 columns */}
-            <div className="xl:col-span-8 space-y-6">
+        {/* Full Width Schedule - Show always, even while loading */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          {/* Treatments Schedule - 8 columns */}
+          <div className="xl:col-span-8 space-y-6">
               <Card className="mb-6">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -786,8 +833,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
               </Card>
             </div>
           </div>
-        )}
-        
+
         {/* Add Treatment Button - Desktop */}
         <div className="hidden md:block fixed top-24 left-8 z-10">
           <Button
