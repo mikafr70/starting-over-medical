@@ -1826,9 +1826,9 @@ export async function getCaregiverNameFromSheet(email) {
   try {
     console.log('>>> Retreive Cargiver name for email:', email);
     await ensureConfigLoaded();
-    console.log('------------------------------------------------------');
-    await addGeneralTreatmentColumnWithValidations();
-    return ''; // Temporarily disable caregiver name retrieval
+    //console.log('------------------------------------------------------');
+    //await addGeneralTreatmentColumnWithValidations();
+    //return ''; // Temporarily disable caregiver name retrieval
     const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
     if (!spreadsheetId) throw new Error('Could not find caregiver sheet' );
     

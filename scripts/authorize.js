@@ -31,7 +31,10 @@ async function authorize() {
   try {
     //const content = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
     //credentials = JSON.parse(content);
-    credentials = JSON.parse(process.env.OAUTH_CLIENT_JSON);
+    //credentials = JSON.parse(process.env.OAUTH_CLIENT_JSON);
+    credentials = JSON.parse(
+      Buffer.from(process.env.OAUTH_CLIENT_JSON_B64, "base64").toString("utf8")
+    );
   } catch (err) {
     console.error('Error loading client secret file:', err);
     console.error('\nPlease ensure you have downloaded OAuth credentials from Google Cloud Console');
@@ -50,7 +53,10 @@ async function authorize() {
   // Check if we already have a token
   try {
     //const token = fs.readFileSync(TOKEN_PATH, 'utf8');
-    const token = process.env.OAUTH_TOKEN_JSON;
+    //const token = process.env.OAUTH_TOKEN_JSON;
+    const token = JSON.parse(
+    Buffer.from(process.env.OAUTH_TOKEN_JSON_B64, "base64").toString("utf8")
+    );
     
     // Force new token if FORCE_NEW_TOKEN is set
     if (process.env.FORCE_NEW_TOKEN === 'true' || !token) {
