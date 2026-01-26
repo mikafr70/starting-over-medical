@@ -151,22 +151,26 @@ export async function POST(request) {
     let updated = false;
     let updatedRowNumbers = [];
     
-    // Find ALL rows matching today's date and the medical case
+    // Find ALL rows matching today's date
+    // Since we now combine rows, we should update ALL rows for this animal/date/timeSlot
+    // regardless of the specific treatment text
     const matchingRows = [];
     for (const row of rows) {
       const rowDateStr = row._rawData?.[0];
       const rowDate = parseDMY(rowDateStr);
-      const rowCase = row._rawData?.[caseColIndex];
       
-      // Match: same date and same medical case (or if medicalCase is not specified)
-      if (rowDate === todayParsed && (!medicalCase || rowCase === medicalCase)) {
+      // Match: same date
+      if (rowDate === todayParsed) {
         const timeSlotValue = row._rawData?.[timeSlotColIndex];
-        console.log(`Found matching row ${row._rowNumber}: date=${rowDateStr}, case=${rowCase}, ${timeSlotColumn}=${timeSlotValue}`);
+        const rowCase = row._rawData?.[caseColIndex];
+        const rowTreatment = row._rawData?.[headerMap['טיפול']];
+        
+        console.log(`Checking row ${row._rowNumber}: date=${rowDateStr}, case=${rowCase}, treatment=${rowTreatment}, ${timeSlotColumn}=${timeSlotValue}`);
         
         // Only include rows where this time slot has a checkbox (TRUE or FALSE)
         if (timeSlotValue === true || timeSlotValue === 'TRUE' || timeSlotValue === false || timeSlotValue === 'FALSE') {
           matchingRows.push({ row, timeSlotValue });
-          console.log(`  ✓ Row ${row._rowNumber} has checkbox in ${timeSlotColumn} column`);
+          console.log(`  ✓ Row ${row._rowNumber} has checkbox in ${timeSlotColumn} column - will be updated`);
         } else {
           console.log(`  ✗ Row ${row._rowNumber} does NOT have checkbox in ${timeSlotColumn} column (value: ${timeSlotValue})`);
         }
@@ -175,7 +179,7 @@ export async function POST(request) {
     
     // Update ALL matching rows that have a checkbox in this time slot
     if (matchingRows.length > 0) {
-      console.log(`Found ${matchingRows.length} row(s) with checkboxes for this case/time, updating all...`);
+      console.log(`Found ${matchingRows.length} row(s) with checkboxes for this date/time, updating all...`);
       
       for (const { row } of matchingRows) {
         console.log(`Updating row ${row._rowNumber}: ${timeSlotColumn} → ${isCompleted ? 'TRUE' : 'FALSE'}`);

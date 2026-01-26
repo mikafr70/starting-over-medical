@@ -98,6 +98,16 @@ function invalidateCache(sheetId, tab = null) {
   }
 }
 
+// Delete specific cache entry
+function deleteFromCache(sheetId, tab = 'default', range = 'all') {
+  const key = getCacheKey(sheetId, tab, range);
+  const deleted = sheetCache.delete(key);
+  if (deleted) {
+    console.log(`🗑️ Cache DELETED: ${key}`);
+  }
+  return deleted;
+}
+
 // Clear entire cache (on user login)
 export function clearAllCache() {
   const size = sheetCache.size;
@@ -1816,9 +1826,9 @@ export async function getCaregiverNameFromSheet(email) {
   try {
     console.log('>>> Retreive Cargiver name for email:', email);
     await ensureConfigLoaded();
-    //console.log('------------------------------------------------------');
-    //await addGeneralTreatmentColumnWithValidations();
-    //return ''; // Temporarily disable caregiver name retrieval
+    console.log('------------------------------------------------------');
+    await addGeneralTreatmentColumnWithValidations();
+    return ''; // Temporarily disable caregiver name retrieval
     const spreadsheetId = process.env.CAREGIVERS_SHEET_ID;
     if (!spreadsheetId) throw new Error('Could not find caregiver sheet' );
     
@@ -2642,16 +2652,23 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
     // Single pass through the sheet to find all dates
     const minDate = Math.min(...Object.keys(datesToFind).map(Number));
     
+    console.log(`   Scanning sheet for dates. Looking for parsed dates:`, Object.keys(datesToFind));
+    console.log(`   minDate: ${minDate}, startRow: ${startRow}, endRow: ${endRow}, chunkSize: ${chunkSize}`);
+    
     outerLoop:
     for (let r = startRow; r <= endRow; r += chunkSize) {
       const rEnd = Math.min(endRow, r + chunkSize - 1);
       const range = `${sheetName}!${startA}${r}:${endA}${rEnd}`;
+      
+      console.log(`   Fetching range: ${range}`);
       
       const resp = await sheetAPI.spreadsheets.values.get({
         spreadsheetId: sheetId,
         range,
         majorDimension: "ROWS",
       });
+      
+      console.log(`   Got ${resp.data.values ? resp.data.values.length : 0} rows`);
       
       for (let i = 0; i < (resp.data.values ? resp.data.values.length : 0); i++) {
         const rowValues = resp.data.values[i];
@@ -2660,13 +2677,23 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
         const stringDate = rowValues[0];
         const parsedRowDate = parseDMY(stringDate);
         
+        console.log(`   Row ${r + i}: date="${stringDate}", parsed=${parsedRowDate}, minDate=${minDate}`);
+        
+        // Skip empty/invalid dates (parsed=0), don't break on them
+        if (parsedRowDate === 0) {
+          console.log(`   ⚠️ Skipping row with invalid/empty date`);
+          continue;
+        }
+        
         if (parsedRowDate < minDate) {
+          console.log(`   ⏹️ Date ${parsedRowDate} < minDate ${minDate}, stopping scan`);
           break outerLoop;
         }
         
         if (datesToFind[parsedRowDate]) {
           const dateInfo = datesToFind[parsedRowDate];
           console.log(`✓ Found treatment for ${dateInfo.dateStr} in row date: ${stringDate}`);
+          console.log(`   Row values: morning[${morningCol}]=${rowValues[morningCol]}, noon[${noonCol}]=${rowValues[noonCol]}, evening[${eveningCol}]=${rowValues[eveningCol]}, general[${generalTreatmentCol}]=${rowValues[generalTreatmentCol]}, personal[${personalTreatmentCol}]=${rowValues[personalTreatmentCol]}`);
           dateInfo.hasTreatment = true;
           
           const morningValue = rowValues[morningCol];
@@ -2681,26 +2708,33 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
           const isGeneralTreatmentChecked = (generalTreatmentValue === true || generalTreatmentValue === 'TRUE');
           
           if (isGeneralTreatmentChecked && excludeCheckedGeneralTreatments) {
+            console.log(`   ⏭️ Skipping row - general treatment is checked and excludeCheckedGeneralTreatments=true`);
             continue;
           }
           
           const hasPersonalOrGeneralCheckbox = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE' || 
-                                                 personalTreatmentValue === false || personalTreatmentValue === 'FALSE' ||
-                                                 generalTreatmentValue === true || generalTreatmentValue === 'TRUE' ||
-                                                 generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
-          
+            personalTreatmentValue === false || personalTreatmentValue === 'FALSE' ||
+            generalTreatmentValue === true || generalTreatmentValue === 'TRUE' ||
+            generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
+            
+          console.log(`   🔍 Treatment type: hasPersonalOrGeneralCheckbox=${hasPersonalOrGeneralCheckbox}`);
+            
           if (hasPersonalOrGeneralCheckbox) {
             const isPersonalTreatmentChecked = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE');
             const isPersonalTreatmentUnchecked = (personalTreatmentValue === false || personalTreatmentValue === 'FALSE');
             const isGeneralUnchecked = (generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
             
             if (isPersonalTreatmentChecked) {
+              console.log(`   ➕ Adding PERSONAL treatment (checked): ${treatment || medicalCase}`);
               dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: true, isPersonal: true });
             } else if (isPersonalTreatmentUnchecked) {
+              console.log(`   ➕ Adding PERSONAL treatment (unchecked): ${treatment || medicalCase}`);
               dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: false, isPersonal: true });
             } else if (isGeneralTreatmentChecked) {
+              console.log(`   ➕ Adding GENERAL treatment (checked): ${treatment || medicalCase}`);
               dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: true, isPersonal: false });
             } else if (isGeneralUnchecked) {
+              console.log(`   ➕ Adding GENERAL treatment (unchecked): ${treatment || medicalCase}`);
               dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: false, isPersonal: false });
             }
           } else {
@@ -2710,14 +2744,19 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
             
             if (hasTimeSlots) {
               if(morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') {
+                console.log(`   ➕ Adding MORNING time slot (completed: ${morningValue === true || morningValue === 'TRUE'}): ${treatment || medicalCase}`);
                 dateInfo.treatmentTimes.push({ timeSlot: 'morning', medicalCase, treatment, dosage, isCompleted: morningValue === true || morningValue === 'TRUE', isGeneral: false, isPersonal: false });
               }
               if(noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') {
+                console.log(`   ➕ Adding NOON time slot (completed: ${noonValue === true || noonValue === 'TRUE'}): ${treatment || medicalCase}`);
                 dateInfo.treatmentTimes.push({ timeSlot: 'noon', medicalCase, treatment, dosage, isCompleted: noonValue === true || noonValue === 'TRUE', isGeneral: false, isPersonal: false });
               }
               if(eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE') {
+                console.log(`   ➕ Adding EVENING time slot (completed: ${eveningValue === true || eveningValue === 'TRUE'}): ${treatment || medicalCase}`);
                 dateInfo.treatmentTimes.push({ timeSlot: 'evening', medicalCase, treatment, dosage, isCompleted: eveningValue === true || eveningValue === 'TRUE', isGeneral: false, isPersonal: false });
               }
+            } else {
+              console.log(`   ⚠️ No valid time slots found in this row`);
             }
           }
         }
@@ -3339,31 +3378,86 @@ export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, tar
     if (targetDates.length === 0) throw new Error('targetDates array is required');
     
     const drive = getDriveClient();
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 1);
-    const startDateISO = twoWeeksAgo.toISOString();
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - 3); // Look back 3 days to catch all recent files
+    lookbackDate.setHours(0, 0, 0, 0);
+    const startDateISO = lookbackDate.toISOString();
+    
+    console.log(`   📅 Looking for files modified since: ${lookbackDate.toISOString()} (3 days ago)`);
+    console.log(`   📁 Searching in folder: ${folderId}`);
     
     // Convert Date objects to strings
     const dateStrings = targetDates.map(date => 
       `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`
     );
     
-    // List files modified in the last week
-    const tempResponse = await drive.files.list({
-      q: `'${folderId}' in parents and modifiedTime >= '${startDateISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name, modifiedTime)',
-      spaces: 'drive'
-    });
+    console.log(`   🎯 Target dates to check: ${dateStrings.join(', ')}`);
     
-    console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
+    // List files modified in the last 3 days - WITH PAGINATION
+    let allFiles = [];
+    let pageToken = null;
+    let pageCount = 0;
+    
+    console.log(`   🔍 Starting file search with pagination...`);
+    
+    do {
+      pageCount++;
+      console.log(`   📄 Fetching page ${pageCount}${pageToken ? ` (token: ${pageToken.substring(0, 20)}...)` : ' (first page)'}...`);
+      
+      const response = await drive.files.list({
+        q: `'${folderId}' in parents and modifiedTime >= '${startDateISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
+        fields: 'nextPageToken, files(id, name, modifiedTime)',
+        spaces: 'drive',
+        pageSize: 1000, // Maximum allowed by Google Drive API
+        pageToken: pageToken
+      });
+      
+      const filesInPage = response.data.files || [];
+      allFiles = allFiles.concat(filesInPage);
+      pageToken = response.data.nextPageToken;
+      
+      console.log(`   ✅ Page ${pageCount}: Got ${filesInPage.length} files. Total so far: ${allFiles.length}. More pages: ${pageToken ? 'YES' : 'NO'}`);
+    } while (pageToken);
+    
+    console.log(`\n📊 FINAL RESULT: Found ${allFiles.length} total files across ${pageCount} page(s)`);
+    console.log(`📝 File names (${allFiles.length} total): ${allFiles.map(f => f.name).join(', ')}`);
     
     // Object to store results: { dateStr: [fileName1, treatmentTimes1, ...] }
     const resultsByDate = {};
     dateStrings.forEach(dateStr => resultsByDate[dateStr] = []);
     
     // Check all dates for each file in a single call
-    for (const file of tempResponse.data.files) {
+    for (const file of allFiles) {
+      console.log(`   Checking file: ${file.name} (${file.id})`);
+      
+      // ALWAYS invalidate cache for files modified today to ensure fresh data
+      const fileModifiedTime = new Date(file.modifiedTime);
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      
+      if (fileModifiedTime >= startOfToday) {
+        console.log(`   ⚠️ File modified today (${file.modifiedTime}), invalidating cache...`);
+        // Clear cache for this file for all dates
+        for (const dateStr of dateStrings) {
+          const cacheKey = `${dateStr}-false`;
+          deleteFromCache(file.id, 'has-treatment', cacheKey);
+        }
+      } else {
+        console.log(`   ℹ️ File modified at ${file.modifiedTime} (before today)`);
+      }
+      
       const dateResults = await hasTreatmentForDates(file.id, dateStrings);
+      console.log(`   Results for ${file.name}:`, Object.entries(dateResults).map(([date, res]) => `${date}: ${res.hasTreatment} (${res.treatmentTimes?.length || 0} slots)`).join(', '));
+      
+      // Detailed logging for files with treatments
+      for (const [dateStr, { hasTreatment, treatmentTimes }] of Object.entries(dateResults)) {
+        if (hasTreatment && treatmentTimes && treatmentTimes.length > 0) {
+          console.log(`   ✅ ${file.name} has ${treatmentTimes.length} treatment(s) for ${dateStr}:`);
+          treatmentTimes.forEach((t, idx) => {
+            console.log(`      ${idx + 1}. Slot: ${t.timeSlot}, Treatment: ${t.treatment || t.medicalCase || 'N/A'}, Completed: ${t.isCompleted}`);
+          });
+        }
+      }
       
       // Process results for each date
       for (const [dateStr, { hasTreatment, treatmentTimes }] of Object.entries(dateResults)) {
