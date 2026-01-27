@@ -178,7 +178,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
               
               // Handle ping messages
               if (chunk.type === 'ping') {
-                console.log('📡 Received ping:', chunk.message);
+                console.log('� Received ping:', chunk.message);
                 continue;
               }
               

@@ -36,7 +36,8 @@ function getCacheKey(sheetId, tab = 'default', range = 'all') {
 }
 
 // Get data from cache if valid
-function getFromCache(sheetId, tab = 'default', range = 'all') {
+// Now accepts optional fileModifiedTime to check if file was modified since cache was set
+function getFromCache(sheetId, tab = 'default', range = 'all', fileModifiedTime = null) {
   const key = getCacheKey(sheetId, tab, range);
   const cached = sheetCache.get(key);
   
@@ -45,28 +46,43 @@ function getFromCache(sheetId, tab = 'default', range = 'all') {
     return null;
   }
   
-  const age = Date.now() - cached.timestamp;
-  if (age > CACHE_DURATION_MS) {
-    console.log(`📦 Cache EXPIRED: ${key} (age: ${Math.round(age/1000)}s)`);
+  // Check if cache is from a different day - if so, invalidate it
+  const today = new Date().toDateString();
+  if (cached.cachedDate && cached.cachedDate !== today) {
+    console.log(`📦 Cache EXPIRED (new day): ${key} (cached on: ${cached.cachedDate}, today: ${today})`);
     sheetCache.delete(key);
     return null;
   }
   
-  console.log(`✅ Cache HIT: ${key} (age: ${Math.round(age/1000)}s)`);
+  // If fileModifiedTime is provided, check if file was modified after cache was set
+  if (fileModifiedTime) {
+    const fileModTime = new Date(fileModifiedTime).getTime();
+    if (fileModTime > cached.timestamp) {
+      console.log(`📦 Cache EXPIRED (file modified): ${key} (file modified: ${fileModifiedTime}, cached: ${new Date(cached.timestamp).toISOString()})`);
+      sheetCache.delete(key);
+      return null;
+    }
+  }
+  
+  const age = Date.now() - cached.timestamp;
+  console.log(`✅ Cache HIT: ${key} (age: ${Math.round(age/1000)}s, cached: ${cached.cachedDate})`);
   return cached.content;
 }
 
 // Store data in cache
-function setInCache(sheetId, tab = 'default', range = 'all', content) {
+function setInCache(sheetId, tab = 'default', range = 'all', content, fileModifiedTime = null) {
   const key = getCacheKey(sheetId, tab, range);
+  const now = new Date();
   sheetCache.set(key, {
     sheetId,
     tab,
     range,
     content,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    cachedDate: now.toDateString(), // Store the date when cached
+    fileModifiedTime: fileModifiedTime // Store when the file was last modified
   });
-  console.log(`💾 Cache SET: ${key}`);
+  console.log(`💾 Cache SET: ${key}${fileModifiedTime ? ` (file modified: ${fileModifiedTime})` : ''}`);
 }
 
 // Invalidate specific cache entry
@@ -2576,17 +2592,17 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
 /*--------------------------------------------------
   Check if sheet has treatments for multiple dates (optimized single-call version)
 ---------------------------------------------------*/
-export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedGeneralTreatments = false) {
+export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedGeneralTreatments = false, fileModifiedTime = null) {
   console.log(`>>> hasTreatmentForDates for sheetID: ${sheetId} and dates: ${dateStrings.join(', ')}`);  
   await ensureConfigLoaded();
   
-  // Check cache for each date
+  // Check cache for each date, passing fileModifiedTime for validation
   const results = {};
   const uncachedDates = [];
   
   for (const dateStr of dateStrings) {
     const cacheKey = `${dateStr}-${excludeCheckedGeneralTreatments}`;
-    const cached = getFromCache(sheetId, 'has-treatment', cacheKey);
+    const cached = getFromCache(sheetId, 'has-treatment', cacheKey, fileModifiedTime);
     if (cached) {
       console.log(`✅ Cache HIT for date ${dateStr}`);
       results[dateStr] = cached;
@@ -2767,7 +2783,7 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
     for (const [parsedDate, dateInfo] of Object.entries(datesToFind)) {
       const result = { hasTreatment: dateInfo.hasTreatment, treatmentTimes: dateInfo.treatmentTimes, animalImage };
       const cacheKey = `${dateInfo.dateStr}-${excludeCheckedGeneralTreatments}`;
-      setInCache(sheetId, 'has-treatment', cacheKey, result);
+      setInCache(sheetId, 'has-treatment', cacheKey, result, fileModifiedTime);
       console.log(`💾 Cache SET for date ${dateInfo.dateStr}`);
       results[dateInfo.dateStr] = result;
     }
@@ -3379,11 +3395,11 @@ export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, tar
     
     const drive = getDriveClient();
     const lookbackDate = new Date();
-    lookbackDate.setDate(lookbackDate.getDate() - 3); // Look back 3 days to catch all recent files
+    lookbackDate.setDate(lookbackDate.getDate() - 1); // Look back 1 day to catch all recent files
     lookbackDate.setHours(0, 0, 0, 0);
     const startDateISO = lookbackDate.toISOString();
     
-    console.log(`   📅 Looking for files modified since: ${lookbackDate.toISOString()} (3 days ago)`);
+    console.log(`   📅 Looking for files modified since: ${lookbackDate.toISOString()} (1 day ago)`);
     console.log(`   📁 Searching in folder: ${folderId}`);
     
     // Convert Date objects to strings
@@ -3429,24 +3445,9 @@ export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, tar
     // Check all dates for each file in a single call
     for (const file of allFiles) {
       console.log(`   Checking file: ${file.name} (${file.id})`);
+      console.log(`   ℹ️ File modified at ${file.modifiedTime}`);
       
-      // ALWAYS invalidate cache for files modified today to ensure fresh data
-      const fileModifiedTime = new Date(file.modifiedTime);
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      
-      if (fileModifiedTime >= startOfToday) {
-        console.log(`   ⚠️ File modified today (${file.modifiedTime}), invalidating cache...`);
-        // Clear cache for this file for all dates
-        for (const dateStr of dateStrings) {
-          const cacheKey = `${dateStr}-false`;
-          deleteFromCache(file.id, 'has-treatment', cacheKey);
-        }
-      } else {
-        console.log(`   ℹ️ File modified at ${file.modifiedTime} (before today)`);
-      }
-      
-      const dateResults = await hasTreatmentForDates(file.id, dateStrings);
+      const dateResults = await hasTreatmentForDates(file.id, dateStrings, false, file.modifiedTime);
       console.log(`   Results for ${file.name}:`, Object.entries(dateResults).map(([date, res]) => `${date}: ${res.hasTreatment} (${res.treatmentTimes?.length || 0} slots)`).join(', '));
       
       // Detailed logging for files with treatments
