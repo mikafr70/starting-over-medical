@@ -641,6 +641,16 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
                       <div className="flex-1 text-right">
                         <div className="font-medium">{animal.name}</div>
                         <div className="text-sm text-muted-foreground">{animalTypeToHebrew[animal.animalType]}</div>
+                        {(animal.treatment || animal.medicalCase) && (
+                          <div className="text-sm mt-1">
+                            <span className="font-medium">טיפול:</span> {animal.medicalCase || animal.treatment}
+                          </div>
+                        )}
+                        {animal.dosage && (
+                          <div className="text-sm">
+                            <span className="font-medium">מינון:</span> {animal.dosage}
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <Button 
@@ -686,8 +696,19 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
                         />
                       </div>
                       <div className="flex-1 text-right">
-                        <div className="font-medium">{animal.name}</div>
-                        <div className="text-sm text-muted-foreground">{animalTypeToHebrew[animal.animalType]}</div>
+                        <div className="font-medium">
+                          {animal.name} <span className="text-sm text-muted-foreground">({animalTypeToHebrew[animal.animalType]})</span>
+                        </div>
+                        {(animal.treatment || animal.medicalCase) && (
+                          <div className="text-sm mt-1">
+                            <span className="font-medium">טיפול:</span> {animal.medicalCase || animal.treatment}
+                          </div>
+                        )}
+                        {animal.dosage && (
+                          <div className="text-sm">
+                            <span className="font-medium">מינון:</span> {animal.dosage}
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <Button 

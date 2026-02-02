@@ -597,22 +597,47 @@ async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
     } while (pageToken);
     
     console.log(`Found ${allFiles.length} total files in folder`);
-    for (const animal of caregiverAnimals) { 
-       for (const file of allFiles) {
-        {
-          // use regx to remove numbers from the end of the name
-          const nameOnly = file.name.replace(/\s+\d{15}$/, '').trim();
-          // Match if the name part matches exactly
-          const isMatch = nameOnly === animal;
-          //console.log(`Comparing file name: "${nameOnly}" with caregiver animal name: "${animal}"`);
-          if (isMatch) {
-            console.log(`  ✓ MATCH FOUND: "${file.name}" for caregiver animal: "${animal}"`);
-            // store matched file id
-            matchedFiles.push({ animalName: animal, sheetId: file.id });
-          }
+    console.log(`Caregiver animals to match: ${caregiverAnimals.join(', ')}`);
+    
+    for (const animal of caregiverAnimals) {
+      console.log(`\n🔍 Looking for file matching animal: "${animal}"`);
+      
+      for (const file of allFiles) {
+        // Clean up the file name
+        let cleanFileName = file.name
+          .replace(/\.xlsx$/i, '')
+          .replace(/\.xls$/i, '')
+          .replace(/^עותק של\s+/i, '')
+          .trim();
+        
+        // Remove 15-digit numbers from the end
+        cleanFileName = cleanFileName.replace(/\s+\d{15}$/, '').trim();
+        
+        // Clean up the animal name (remove numbers if present)
+        const cleanAnimalName = animal.replace(/\s+\d{15}$/, '').trim();
+        
+        // Try exact match first
+        let isMatch = cleanFileName === cleanAnimalName;
+        
+        // If no exact match, try matching just the first part (before any numbers)
+        if (!isMatch) {
+          const fileNamePart = cleanFileName.split(' ')[0];
+          const animalNamePart = cleanAnimalName.split(' ')[0];
+          isMatch = fileNamePart === animalNamePart;
+        }
+        
+        console.log(`  Comparing file: "${cleanFileName}" with animal: "${cleanAnimalName}" => ${isMatch ? '✓ MATCH' : '✗ no match'}`);
+        
+        if (isMatch) {
+          console.log(`  ✓✓ MATCH FOUND: "${file.name}" for caregiver animal: "${animal}"`);
+          matchedFiles.push({ animalName: animal, sheetId: file.id });
+          break; // Found a match, move to next animal
         }
       }   
-    };
+    }
+    
+    console.log(`\nTotal matches found: ${matchedFiles.length}`);
+    
     if (matchedFiles.length === 0) {  
       console.log(`No treatment sheets found for caregiver ${caregiverName} in animal type ${animalType}`);
       return [];
