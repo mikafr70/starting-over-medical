@@ -2482,6 +2482,7 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
 
     const startA = colToA1(startCol);
     const endA = colToA1(endCol);
+    let row2HadNoDate = false;
     outerLoop:
     for (let r = startRow; r <= endRow; r += chunkSize) {
       const rEnd = Math.min(endRow, r + chunkSize - 1);
@@ -2502,6 +2503,22 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
         const values = resp.data.values ?? [];
         const stringDate = rowValues[0];
         const parsedRowDate = parseDMY(stringDate);
+        const isRow2 = (r === startRow && i === 0);
+        const isRow3 = (r === startRow && i === 1);
+        const rowHasNoDate = (!stringDate || parsedRowDate === 0);
+
+        // Row 2 alone isn't conclusive (it can be a stray duplicate header) - check
+        // row 3 too. Only stop early if BOTH the first two rows lack a usable date,
+        // meaning the sheet has no date-based data at all.
+        if (isRow2 && rowHasNoDate) {
+          row2HadNoDate = true;
+          console.log('   ⚠️ Row 2 has no valid date, checking row 3 before giving up:', stringDate);
+          continue;
+        }
+        if (isRow3 && row2HadNoDate && rowHasNoDate) {
+          console.log('   ⏹️ Rows 2 and 3 both lack a valid date - stopping scan early:', stringDate);
+          break outerLoop;
+        }
 
         // Skip empty or invalid date strings first - don't let them stop the scan
         if (!stringDate) {
@@ -2746,40 +2763,57 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
     const chunkSize = 20;
     const startA = colToA1(startCol);
     const endA = colToA1(endCol);
-    
+    let row2HadNoDate = false;
+
     // Single pass through the sheet to find all dates
     const minDate = Math.min(...Object.keys(datesToFind).map(Number));
-    
+
     console.log(`   Scanning sheet for dates. Looking for parsed dates:`, Object.keys(datesToFind));
     console.log(`   minDate: ${minDate}, startRow: ${startRow}, endRow: ${endRow}, chunkSize: ${chunkSize}`);
-    
+
     outerLoop:
     for (let r = startRow; r <= endRow; r += chunkSize) {
       const rEnd = Math.min(endRow, r + chunkSize - 1);
       const range = `${sheetName}!${startA}${r}:${endA}${rEnd}`;
-      
+
       console.log(`   Fetching range: ${range}`);
-      
+
       const resp = await sheetAPI.spreadsheets.values.get({
         spreadsheetId: sheetId,
         range,
         majorDimension: "ROWS",
       });
-      
+
       // throttle reads to avoid Google Sheets rate limits
       await sleep(SHEET_READ_DELAY_MS);
 
       console.log(`   Got ${resp.data.values ? resp.data.values.length : 0} rows`);
-      
+
       for (let i = 0; i < (resp.data.values ? resp.data.values.length : 0); i++) {
         const rowValues = resp.data.values[i];
         if (!rowValues) continue;
-        
+
         const stringDate = rowValues[0];
         const parsedRowDate = parseDMY(stringDate);
-        
+        const isRow2 = (r === startRow && i === 0);
+        const isRow3 = (r === startRow && i === 1);
+        const rowHasNoDate = (parsedRowDate === 0);
+
         console.log(`   Row ${r + i}: date="${stringDate}", parsed=${parsedRowDate}, minDate=${minDate}`);
-        
+
+        // Row 2 alone isn't conclusive (it can be a stray duplicate header) - check
+        // row 3 too. Only stop early if BOTH the first two rows lack a usable date,
+        // meaning the sheet has no date-based data at all.
+        if (isRow2 && rowHasNoDate) {
+          row2HadNoDate = true;
+          console.log(`   ⚠️ Row 2 has no valid date, checking row 3 before giving up`);
+          continue;
+        }
+        if (isRow3 && row2HadNoDate && rowHasNoDate) {
+          console.log(`   ⏹️ Rows 2 and 3 both lack a valid date - stopping scan early`);
+          break outerLoop;
+        }
+
         // Skip empty/invalid dates (parsed=0), don't break on them
         if (parsedRowDate === 0) {
           console.log(`   ⚠️ Skipping row with invalid/empty date`);

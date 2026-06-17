@@ -63,6 +63,19 @@ function parseDDMMYYYY(dateStr) {
   return new Date(year, month - 1, day); // month is 0-based
 }
 
+// Normalize an animal name for lenient comparison: unify apostrophe-like
+// characters (ASCII ' vs Hebrew geresh ׳ vs Unicode quotes), strip a trailing
+// parenthetical disambiguation note (e.g. "(סוס)" or "(אין שבב)") that may be
+// present on the treatment-sheet file name but absent from the master list
+// (or vice versa), and collapse whitespace.
+function normalizeAnimalName(name) {
+  return (name || '')
+    .replace(/['‘’׳`]/g, '')
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ...existing code...
 import { log } from 'console';
 import { ANIMAL_TREATMENT_SHEETS, getAnimalTreatments, addTreatmentAtTop, getAnimalsFromSheet, getAnimals, getProtocolsFromSheet, readRecentSheetsAndRows, ensureConfigLoaded, getAllAnimalTypes } from '@/src/lib/sheets'; // ...existing code...
@@ -104,7 +117,13 @@ export async function GET(request) {
       const allAnimals = await getAnimals(animalType);
       console.log('All animals fetched:', allAnimals.length);
 
-      const targetAnimal = allAnimals.find(a => a.name === animalName || a.displayName === animalName || (a.name && a.name.includes(animalName)));
+      const normalizedSearchName = normalizeAnimalName(animalName);
+      const targetAnimal = allAnimals.find(a =>
+        a.name === animalName ||
+        a.displayName === animalName ||
+        (a.name && a.name.includes(animalName)) ||
+        (a.name && normalizeAnimalName(a.name) === normalizedSearchName)
+      );
 
       if (!targetAnimal) {
         return new Response(JSON.stringify({ error: 'Animal not found', animalName }), {
