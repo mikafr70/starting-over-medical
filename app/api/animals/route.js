@@ -25,13 +25,46 @@ export async function GET(request) {
     if(caregiver ){
       console.log('Fetching data for caregiver:', caregiver);
       const includeGeneral = includeGeneralTreatments === 'true';
-      
-      // Fetch animals and optionally general treatments in ONE pass
-      const result = await getAnimalsForCaregiverWithTreatementsToday(caregiver, includeGeneral);
-      
-      return new Response(JSON.stringify(result), { 
-        status: 200, 
-        headers: CORS_HEADERS 
+
+      // Stream each treatment to the client the moment it's found, instead of
+      // waiting for every assigned animal to be checked before responding.
+      const encoder = new TextEncoder();
+      let totalPersonal = 0;
+      let totalGeneral = 0;
+
+      const streamResponse = new ReadableStream({
+        async start(controller) {
+          try {
+            const onTreatmentFound = async (treatment, isGeneral) => {
+              const data = JSON.stringify({ treatment, isGeneral, more: true }) + '\n';
+              controller.enqueue(encoder.encode(data));
+              if (isGeneral) totalGeneral++; else totalPersonal++;
+              // Yield to the macrotask queue so Node.js flushes the HTTP buffer
+              // to the socket instead of batching enqueue calls until close().
+              await new Promise(resolve => setTimeout(resolve, 0));
+            };
+
+            await getAnimalsForCaregiverWithTreatementsToday(caregiver, includeGeneral, onTreatmentFound);
+
+            const finalChunk = { complete: true, more: false, totalPersonal, totalGeneral };
+            controller.enqueue(encoder.encode(JSON.stringify(finalChunk) + '\n'));
+          } catch (error) {
+            console.error('Error streaming caregiver treatments:', error);
+            controller.error(error);
+          } finally {
+            controller.close();
+          }
+        }
+      });
+
+      return new Response(streamResponse, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+          'Transfer-Encoding': 'chunked',
+        },
       });
     }
  

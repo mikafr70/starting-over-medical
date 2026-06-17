@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
-import { Textarea } from "./ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { toast } from "sonner";
 
@@ -13,6 +12,7 @@ interface Treatment {
   id: number;
   animalName: string;
   animalType: string;
+  animalTypeKey: string;
   animalImage: string;
   treatmentType: string;
   medicalCase: string;
@@ -110,24 +110,10 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Daily events state
-  const [dailyEvents, setDailyEvents] = useState<string[]>([]);
-  const [newEvent, setNewEvent] = useState('');
-  const [loadingEvents, setLoadingEvents] = useState(false);
-  const [savingEvent, setSavingEvent] = useState(false);
-  const [selectedEventDate, setSelectedEventDate] = useState<string>(''); // DD.MM.YYYY format
-
   // Ref to prevent duplicate fetches
   const fetchInProgressRef = useRef(false);
 
   const selectedDay = scheduleDays[selectedDayIndex];
-
-  // Initialize selectedEventDate to today when component mounts
-  useEffect(() => {
-    if (!selectedEventDate && selectedDay) {
-      setSelectedEventDate(selectedDay.date);
-    }
-  }, [selectedDay]);
 
   // Fetch treatments from API with streaming support
   useEffect(() => {
@@ -161,38 +147,22 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         const allTreatments: Treatment[] = [];
         const initialCompleted = new Set<string>();
         
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            
+        const processLine = (line: string) => {
+            if (!line.trim()) return;
             try {
               const chunk = JSON.parse(line);
-              
-              // Handle ping messages
-              if (chunk.type === 'ping') {
-                console.log('� Received ping:', chunk.message);
-                continue;
-              }
-              
+              if (chunk.type === 'ping') return;
               if (chunk.complete) {
                 console.log(`✅ Complete - ${chunk.total} treatments`);
                 setLoading(false);
-                continue;
+                return;
               }
-              
               if (chunk.treatments && chunk.treatments.length > 0) {
                 const formattedChunk: Treatment[] = chunk.treatments.map((treatment: any) => ({
                   id: Math.abs(hashCode(treatment.id)),
                   animalName: treatment.animalName,
                   animalType: treatment.animalType,
+                  animalTypeKey: treatment.animalTypeKey,
                   animalImage: treatment.animalImage,
                   treatmentType: treatment.treatmentType,
                   medicalCase: treatment.medicalCase || 'ללא תיאור',
@@ -203,27 +173,41 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                   treatmentDate: treatment.treatmentDate,
                   dateLabel: treatment.dateLabel
                 }));
-                
                 allTreatments.push(...formattedChunk);
-                
                 formattedChunk.forEach(treatment => {
                   if (treatment.isCompleted) {
                     const key = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
                     initialCompleted.add(key);
                   }
                 });
-                
-                // Update UI immediately with new data
                 setTreatments([...allTreatments]);
                 setCompletedTreatments(new Set(initialCompleted));
-                
                 const timestamp = new Date().toLocaleTimeString();
                 console.log(`📦 [${timestamp}] +${formattedChunk.length} (total: ${allTreatments.length})`);
               }
             } catch (parseError) {
               console.error('Parse error:', parseError);
             }
+          };
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            processLine(line);
           }
+        }
+
+        // Flush decoder and process any remaining data after stream ends
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          processLine(buffer);
         }
         
       } catch (err) {
@@ -237,121 +221,6 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
     fetchTreatments();
   }, []);
-
-  // Fetch daily events when selected day changes
-  useEffect(() => {
-    const fetchDailyEvents = async () => {
-      if (!selectedDay) return;
-      
-      try {
-        setLoadingEvents(true);
-        const response = await fetch(`/api/daily-events?date=${encodeURIComponent(selectedDay.date)}`);
-        const data = await response.json();
-        
-        if (response.ok) {
-          setDailyEvents(data.events || []);
-        } else {
-          console.error('Failed to fetch daily events:', data.error);
-          toast.error('שגיאה בטעינת אירועים יומיים');
-        }
-      } catch (err) {
-        console.error('Error fetching daily events:', err);
-        toast.error('שגיאה בחיבור לשרת');
-      } finally {
-        setLoadingEvents(false);
-      }
-    };
-
-    fetchDailyEvents();
-  }, [selectedDay?.date]);
-
-  // Fetch events for selected event date when it changes
-  useEffect(() => {
-    const fetchEventsForDate = async () => {
-      if (!selectedEventDate) return;
-      
-      try {
-        setLoadingEvents(true);
-        const response = await fetch(`/api/daily-events?date=${encodeURIComponent(selectedEventDate)}`);
-        const data = await response.json();
-        
-        if (response.ok) {
-          setDailyEvents(data.events || []);
-        } else {
-          console.error('Failed to fetch daily events:', data.error);
-        }
-      } catch (err) {
-        console.error('Error fetching daily events:', err);
-      } finally {
-        setLoadingEvents(false);
-      }
-    };
-
-    fetchEventsForDate();
-  }, [selectedEventDate]);
-
-  // Save daily event
-  const handleSaveEvent = async () => {
-    if (!newEvent.trim() || !selectedEventDate) return;
-    
-    try {
-      setSavingEvent(true);
-      const response = await fetch('/api/daily-events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: selectedEventDate,
-          event: newEvent.trim()
-        })
-      });
-
-      const data = await response.json();
-      
-      if (response.ok) {
-        // Only update the list if the saved date matches the currently selected event date
-        if (selectedEventDate === selectedEventDate) {
-          setDailyEvents([...dailyEvents, newEvent.trim()]);
-        }
-        setNewEvent('');
-        toast.success('אירוע נשמר בהצלחה');
-      } else {
-        console.error('Failed to save event:', data.error);
-        toast.error('שגיאה בשמירת האירוע');
-      }
-    } catch (err) {
-      console.error('Error saving event:', err);
-      toast.error('שגיאה בחיבור לשרת');
-    } finally {
-      setSavingEvent(false);
-    }
-  };
-
-  // Delete daily event
-  const handleDeleteEvent = async (eventToDelete: string) => {
-    try {
-      const response = await fetch('/api/daily-events', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: selectedEventDate,
-          event: eventToDelete
-        })
-      });
-
-      const data = await response.json();
-      
-      if (response.ok) {
-        setDailyEvents(dailyEvents.filter(e => e !== eventToDelete));
-        toast.success('אירוע נמחק בהצלחה');
-      } else {
-        console.error('Failed to delete event:', data.error);
-        toast.error('שגיאה במחיקת האירוע');
-      }
-    } catch (err) {
-      console.error('Error deleting event:', err);
-      toast.error('שגיאה בחיבור לשרת');
-    }
-  };
 
   // Helper function to convert string to number hash
   const hashCode = (str: string): number => {
@@ -485,7 +354,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       setIsProcessing(false);
     }
     // Navigate to profile view using the provided callback (type first, then name)
-    onSelectAnimal(treatment.animalType, treatment.animalName);
+    onSelectAnimal(treatment.animalTypeKey, treatment.animalName);
   };
 
   const handleConfirmToggle = async () => {
@@ -656,9 +525,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         )}
 
         {/* Full Width Schedule - Show always, even while loading */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          {/* Treatments Schedule - 8 columns */}
-          <div className="xl:col-span-8 space-y-6">
+        <div className="space-y-6">
               <Card className="mb-6">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -746,93 +613,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                   })}
                 </div>
               )}
-            </div>
-
-            {/* Daily Events Panel - 4 columns */}
-            <div className="xl:col-span-4">
-              <Card className="xl:sticky xl:top-6">
-                <CardHeader>
-                  <CardTitle className="text-right">אירועים יומיים</CardTitle>
-                  <CardDescription className="text-right">
-                    {selectedEventDate && `אירועים והערות ל-${selectedEventDate}`}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Events List */}
-                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                    {loadingEvents ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                      </div>
-                    ) : dailyEvents.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-8 text-sm">אין אירועים ליום זה</p>
-                    ) : (
-                      dailyEvents.map((event, index) => (
-                        <div 
-                          key={index} 
-                          className="group p-3 bg-muted rounded-lg text-right text-sm border flex items-start justify-between gap-2 hover:bg-muted/80 transition-colors"
-                          style={{ borderColor: '#E7E7E7' }}
-                        >
-                          <span className="flex-1">{event}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                            onClick={() => handleDeleteEvent(event)}
-                          >
-                            <X className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  {/* Event Input */}
-                  <div className="space-y-2 pt-4 border-t">
-                    {/* Date Picker */}
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium text-right whitespace-nowrap">תאריך:</label>
-                      <input
-                        type="date"
-                        value={selectedEventDate ? 
-                          // Convert DD.MM.YYYY to YYYY-MM-DD for input
-                          selectedEventDate.split('.').reverse().join('-') : 
-                          ''}
-                        onChange={(e) => {
-                          // Convert YYYY-MM-DD to DD.MM.YYYY
-                          const [year, month, day] = e.target.value.split('-');
-                          setSelectedEventDate(`${day}.${month}.${year}`);
-                        }}
-                        className="flex-1 px-3 py-2 border rounded-md text-sm"
-                      />
-                    </div>
-                    <Textarea
-                      placeholder="הזן אירוע או הערה..."
-                      value={newEvent}
-                      onChange={(e) => setNewEvent(e.target.value)}
-                      className="text-right resize-none"
-                      rows={3}
-                    />
-                    <Button
-                      onClick={handleSaveEvent}
-                      disabled={!newEvent.trim() || savingEvent || !selectedEventDate}
-                      className="w-full"
-                      style={{ backgroundColor: '#A67C52' }}
-                    >
-                      {savingEvent ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin ml-2" />
-                          שומר...
-                        </>
-                      ) : (
-                        'שמור אירוע'
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+        </div>
 
         {/* Add Treatment Button - Desktop */}
         <div className="hidden md:block fixed top-24 left-8 z-10">

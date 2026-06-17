@@ -36,8 +36,8 @@ export async function GET(request) {
     ];
 
     // Process animal types in parallel with limited concurrency
-    // Filter to only include donkeys, horses, sheep, and goats
-    const allowedTypes = ['donkey', 'horse', 'sheep', 'goat'];
+    // Filter to only include donkeys, horses, sheep, goats, camels, and mules
+    const allowedTypes = ['donkey', 'horse', 'sheep', 'goat', 'camel', 'mule'];
     const animalTypes = Object.keys(ANIMAL_TREATMENT_SHEETS()).filter(
       type => allowedTypes.includes(type) && ANIMAL_TREATMENT_SHEETS()[type].folderId
     );
@@ -145,193 +145,144 @@ export async function GET(request) {
           controller.enqueue(encoder.encode(JSON.stringify(ping) + '\n'));
           console.log('📡 Sent initial ping');
           
-          let pendingTreatments = [];
           let processedAnimalsCount = 0;
-          const CHUNK_SIZE = 5; // Send every 5 animals
-          
-          // Function to send a chunk immediately
-          const sendChunk = (treatments) => {
-            if (treatments.length === 0) return;
-            
-            const chunk = {
-              treatments: [...treatments], // Copy array
-              more: true
-            };
-            const data = JSON.stringify(chunk) + '\n';
+
+          // Send a single treatment immediately as it's found
+          const sendTreatment = (treatment) => {
+            const data = JSON.stringify({ treatments: [treatment], more: true }) + '\n';
             controller.enqueue(encoder.encode(data));
-            totalSent += treatments.length;
-            console.log(`📦 ✨ SENT chunk with ${treatments.length} treatments (${processedAnimalsCount} animals processed, total treatments: ${totalSent})`);
+            totalSent += 1;
+            console.log(`📨 Sent treatment for ${treatment.animalName} (${treatment.timeSlot}) - total: ${totalSent}`);
           };
           
           console.log('🔄 Starting to process all animal types...');
           
-          // Process ALL animal types and collect all animals
+          // Process ALL animal types. Each file's treatments are sent to the
+          // client the moment that file is checked, instead of waiting for
+          // the whole folder (all ~20-30 files) to be scanned first.
           for (const animalType of animalTypes) {
-            console.log(`🐾 Processing ${animalType}...`);
+            const folderIdUsed = ANIMAL_TREATMENT_SHEETS()[animalType].folderId;
+            console.log(`🐾 Processing ${animalType}... (folderId: ${folderIdUsed})`);
             const startTime = Date.now();
-            
-            try {
-              const resultsByDate = await getRecentlyEditedFilesWithTreatmentsForDates(
-                ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
-                datesToFetch.map(d => d.date)
-              );
-              
-              console.log(`✓ ${animalType} data fetched in ${Date.now() - startTime}ms`);
-              
-              // First, collect all unique animals across all dates
-              const animalMap = new Map(); // Map of animalName -> { fileName, allTreatments: [{date, label, timeInfo}] }
-              
-              for (const { date, label } of datesToFetch) {
-                const dateStr = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
-                const result = resultsByDate[dateStr] || [];
-                
-                console.log(`   📅 Processing ${animalType} for ${dateStr}: ${result.length / 2} animals found`);
-                
-                // Process each animal in this result
-                for (let i = 0; i < result.length; i += 2) {
-                  const fileName = result[i];
-                  const treatmentTimes = result[i + 1] || [];
-                
-                  if (fileName && treatmentTimes.length > 0) {
-                    let animalName = fileName
-                      .replace('.xlsx', '')
-                      .replace('.xls', '')
-                      .replace(/^עותק של\s+/i, '')
-                      .trim();
-                    
-                    animalName = animalName.replace(/\s+\d{15}$/, '').trim();
-                    
-                    if (!animalName) {
-                      animalName = fileName.replace('.xlsx', '').replace('.xls', '');
-                    }
-                    
-                    console.log(`      🐾 ${animalName}: ${treatmentTimes.length} total time slots`);
-                    
-                    // Add to map
-                    if (!animalMap.has(animalName)) {
-                      animalMap.set(animalName, { fileName, allTreatments: [] });
-                    }
-                    
-                    // Group treatments by date and timeSlot to combine multiple rows
-                    treatmentTimes.forEach(timeInfo => {
-                      console.log(`         - Slot: ${timeInfo.timeSlot}, Treatment: ${timeInfo.treatment || timeInfo.medicalCase || 'N/A'}`);
-                      if (timeInfo.timeSlot !== 'personal' && timeInfo.timeSlot !== 'general') {
-                        animalMap.get(animalName).allTreatments.push({ date, label, timeInfo });
-                      } else {
-                        console.log(`         ⚠️ SKIPPED (personal/general)`);
-                      }
-                    });
-                  }
+            const { date, label } = datesToFetch[0];
+            const dateStr = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+
+            const onFileChecked = async (fileName, dateResults) => {
+              const fileResult = dateResults[dateStr];
+              if (!fileResult || !fileResult.hasTreatment) return;
+
+              const treatmentTimes = fileResult.treatmentTimes || [];
+              if (treatmentTimes.length === 0) return;
+
+              let animalName = fileName
+                .replace('.xlsx', '')
+                .replace('.xls', '')
+                .replace(/^עותק של\s+/i, '')
+                .trim();
+              animalName = animalName.replace(/\s+\d{15}$/, '').trim();
+              if (!animalName) {
+                animalName = fileName.replace('.xlsx', '').replace('.xls', '');
+              }
+
+              // Fetch photo once per animal
+              const cacheKey = `${animalType}_${animalName}`;
+              if (!photoCache.has(cacheKey)) {
+                try {
+                  const photo = await getAnimalPhoto(animalType, animalName);
+                  photoCache.set(cacheKey, photo || null);
+                } catch (error) {
+                  photoCache.set(cacheKey, null);
                 }
               }
-              
-              // Now process each unique animal
-              for (const [animalName, animalData] of animalMap.entries()) {
-                // Check if this animal has treatments for TODAY
-                const todayTreatments = animalData.allTreatments.filter(t => t.label === 'today');
-                
-                // Only process animals that have treatments TODAY
-                if (todayTreatments.length === 0) {
-                  continue;
-                }
-                
-                // Fetch photo once per animal
-                const cacheKey = `${animalType}_${animalName}`;
-                if (!photoCache.has(cacheKey)) {
-                  try {
-                    const photo = await getAnimalPhoto(animalType, animalName);
-                    photoCache.set(cacheKey, photo || null);
-                  } catch (error) {
-                    photoCache.set(cacheKey, null);
-                  }
-                }
-                
-                const animalPhoto = photoCache.get(cacheKey);
-                
-                // Group treatments by date and timeSlot, combining multiple rows
-                const groupedTreatments = new Map(); // key: `${dateLabel}_${timeSlot}`
-                
-                animalData.allTreatments.forEach(({ date, label, timeInfo }) => {
-                  const key = `${label}_${timeInfo.timeSlot}`;
-                  
-                  if (!groupedTreatments.has(key)) {
-                    groupedTreatments.set(key, {
-                      date,
-                      label,
-                      timeSlot: timeInfo.timeSlot,
-                      rows: []
-                    });
-                  }
-                  
-                  groupedTreatments.get(key).rows.push(timeInfo);
-                });
-                
-                // Process each grouped treatment (one row per date+timeSlot combination)
-                for (const [key, groupedData] of groupedTreatments.entries()) {
-                  const { date, label, timeSlot, rows } = groupedData;
-                  
-                  // Determine display text: use medicalCase if any row has it, otherwise list all treatments
-                  let displayText = '';
-                  const medicalCases = rows.map(r => r.medicalCase).filter(c => c && c.trim());
-                  const treatments = rows.map(r => r.treatment).filter(t => t && t.trim());
-                  
-                  if (medicalCases.length > 0) {
-                    // If there's a medical case/reason, show it
-                    displayText = medicalCases[0]; // Use the first medical case
-                  } else if (treatments.length > 0) {
-                    // Otherwise, show all treatments separated by commas
-                    displayText = treatments.join(', ');
-                  } else {
-                    displayText = 'ללא תיאור';
-                  }
-                  
-                  // Check if all rows have the same completion status
-                  const allCompleted = rows.every(r => r.isCompleted === true);
-                  const allIncomplete = rows.every(r => r.isCompleted === false);
-                  const isCompleted = allCompleted; // Consider completed only if ALL rows are completed
-                  
-                  const treatment = {
-                    id: `${animalType}_${animalData.fileName}_${timeSlot}_${label}_${Math.random()}`,
-                    animalName: animalName,
+              const animalPhoto = photoCache.get(cacheKey);
+
+              // Group regular treatments by timeSlot to combine multiple rows;
+              // personal treatments are sent individually, general ones skipped.
+              const groupedTreatments = new Map();
+              for (const timeInfo of treatmentTimes) {
+                if (timeInfo.timeSlot === 'personal') {
+                  const personalTreatment = {
+                    id: `${animalType}_${fileName}_personal_${label}_${Math.random()}`,
+                    animalName,
                     animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
                     animalTypeKey: animalType,
                     animalImage: animalPhoto || '',
-                    medicalCase: displayText,
-                    treatmentType: geteTreatmentTypeByTimeSlot(timeSlot),
-                    time: getTimeBySlot(timeSlot),
-                    timeSlot: timeSlot,
-                    caregiver: "נקבע לפי זמינות",
+                    medicalCase: timeInfo.medicalCase || timeInfo.treatment || 'ללא תיאור',
+                    treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
+                    time: getTimeBySlot(timeInfo.timeSlot),
+                    timeSlot: 'personal',
+                    caregiver: timeInfo.caregiver || 'נקבע לפי זמינות',
                     emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
-                    isCompleted: isCompleted,
+                    isCompleted: timeInfo.isCompleted || false,
                     treatmentDate: date.toISOString().split('T')[0],
                     dateLabel: label,
-                    rowCount: rows.length // Track how many rows this represents
+                    rowCount: 1,
+                    sourceFolderId: folderIdUsed
                   };
-                  
-                  pendingTreatments.push(treatment);
-                }
-                
-                // Increment count and send chunk every CHUNK_SIZE animals
-                processedAnimalsCount++;
-                console.log(`   Animal ${processedAnimalsCount}: ${animalName} (${animalType}) - ${todayTreatments.length} today treatments, ${pendingTreatments.length} total pending`);
-                
-                if (processedAnimalsCount % CHUNK_SIZE === 0) {
-                  console.log(`🎯 Reached ${CHUNK_SIZE} animals, sending chunk now!`);
-                  sendChunk(pendingTreatments);
-                  pendingTreatments = [];
-                  // Small delay to avoid quota errors
-                  await new Promise(resolve => setTimeout(resolve, 100));
+                  sendTreatment(personalTreatment);
+                } else if (timeInfo.timeSlot !== 'general') {
+                  if (!groupedTreatments.has(timeInfo.timeSlot)) {
+                    groupedTreatments.set(timeInfo.timeSlot, []);
+                  }
+                  groupedTreatments.get(timeInfo.timeSlot).push(timeInfo);
                 }
               }
-              
+
+              for (const [timeSlot, rows] of groupedTreatments.entries()) {
+                let displayText = '';
+                const medicalCases = rows.map(r => r.medicalCase).filter(c => c && c.trim());
+                const treatmentsList = rows.map(r => r.treatment).filter(t => t && t.trim());
+
+                if (medicalCases.length > 0) {
+                  displayText = medicalCases[0];
+                } else if (treatmentsList.length > 0) {
+                  displayText = treatmentsList.join(', ');
+                } else {
+                  displayText = 'ללא תיאור';
+                }
+
+                const isCompleted = rows.every(r => r.isCompleted === true);
+
+                const treatment = {
+                  id: `${animalType}_${fileName}_${timeSlot}_${label}_${Math.random()}`,
+                  animalName,
+                  animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
+                  animalTypeKey: animalType,
+                  animalImage: animalPhoto || '',
+                  medicalCase: displayText,
+                  treatmentType: geteTreatmentTypeByTimeSlot(timeSlot),
+                  time: getTimeBySlot(timeSlot),
+                  timeSlot,
+                  caregiver: "נקבע לפי זמינות",
+                  emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
+                  isCompleted,
+                  treatmentDate: date.toISOString().split('T')[0],
+                  dateLabel: label,
+                  rowCount: rows.length
+                };
+
+                sendTreatment(treatment);
+              }
+
+              processedAnimalsCount++;
+              console.log(`   Animal ${processedAnimalsCount}: ${animalName} (${animalType}) - sent immediately`);
+              // Yield to macrotask queue so Node.js flushes the HTTP buffer to the socket.
+              // Without this, synchronous enqueue calls after a cached-photo microtask
+              // are never flushed until controller.close() fires.
+              await new Promise(resolve => setTimeout(resolve, 0));
+            };
+
+            try {
+              await getRecentlyEditedFilesWithTreatmentsForDates(
+                ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
+                datesToFetch.map(d => d.date),
+                onFileChecked
+              );
+
+              console.log(`✓ ${animalType} data fetched in ${Date.now() - startTime}ms`);
             } catch (error) {
               console.error(`❌ Error processing ${animalType}:`, error.message);
             }
-          }
-          
-          // Send any remaining treatments
-          if (pendingTreatments.length > 0) {
-            sendChunk(pendingTreatments);
           }
           
           // Send final completion message

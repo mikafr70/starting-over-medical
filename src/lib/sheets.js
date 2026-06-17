@@ -10,6 +10,14 @@ import { start } from 'repl';
 let configLoaded = false;
 let configPromise = null;
 
+// Throttle settings to avoid Google Sheets rate limits
+// Increase default to 1000ms to reduce chance of hitting rate limits
+const SHEET_READ_DELAY_MS = Number(process.env.SHEET_READ_DELAY_MS) || 1000; // default 1000ms between chunk reads
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /*--------------------------------------------------
   CACHE MECHANISM
   Rules:
@@ -232,7 +240,19 @@ export const ANIMAL_TREATMENT_SHEETS = () => ({
     sheetId: process.env.PIGS_SHEET_ID,
     folderId: process.env.PIGS_DRIVE_FOLDER_ID,
   },
-  
+  camel: {
+    displayName: "גמל",
+    emoji: "🐪",
+    sheetId: process.env.CAMELS_SHEET_ID,
+    folderId: process.env.CAMELS_DRIVE_FOLDER_ID,
+  },
+  mule: {
+    displayName: "פרד",
+    emoji: "🐴",
+    sheetId: process.env.MULES_SHEET_ID,
+    folderId: process.env.MULES_DRIVE_FOLDER_ID,
+  },
+
 });
 
 /*--------------------------------------------------
@@ -459,8 +479,10 @@ async function findSpreadsheetInFolder(animalType, animalName) {
   const animalTypeKey = await getAnimalTypeKey(animalType);
   const folderId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId;
 
+  // Normalize animal name for cache key (strip parentheses and trailing 15-digit IDs)
+  const normalizedAnimalName = stripParentheses(animalName).replace(/\s+\d{15}$/, '').trim();
   // Check cache first
-  const cacheKey = `${animalType}-${animalName}`;
+  const cacheKey = `${animalType}-${normalizedAnimalName}`;
   const cached = getFromCache(folderId, 'spreadsheet-lookup', cacheKey);
   if (cached) {
     return cached;
@@ -468,7 +490,7 @@ async function findSpreadsheetInFolder(animalType, animalName) {
 
   try {
     // Extract just the name part from animalName (e.g., "קשיו" from "קשיו 939000007563363")
-    const nameOnly = animalName.split(' ')[0];
+    const nameOnly = stripParentheses(animalName).split(' ')[0];
     
     //console.log(`Searching for animal: "${animalName}", extracted name: "${nameOnly}"`);
     
@@ -497,11 +519,11 @@ async function findSpreadsheetInFolder(animalType, animalName) {
       const nameWithoutExtension = file.name.replace(/\..*$/, ''); // Remove extension
       // Remove "עותק של " prefix if present
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
-      // Extract the name part (first word after removing prefix)
-      const fileNameOnly = nameWithoutPrefix.split(' ')[0];
-      //console.log(`Comparing: "${fileNameOnly}" === "${nameOnly}" | Full: "${file.name}"`);
-      // Match if the name part matches exactly
-      const isMatch = fileNameOnly === nameOnly;
+      // Clean the file name (remove parentheses and trailing numeric IDs)
+      const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d{15}$/, '').trim();
+      //console.log(`Comparing: fileNameClean:"${fileNameClean}" with nameOnly:"${nameOnly}" | Full: "${file.name}"`);
+      // Match if the cleaned file name starts with the target name (handles extra suffixes/IDs)
+      const isMatch = fileNameClean === nameOnly || fileNameClean.startsWith(nameOnly);
       if (isMatch) {
         console.log(`  ✓ MATCH FOUND: "${file.name}"`);
       }
@@ -610,21 +632,14 @@ async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
           .replace(/^עותק של\s+/i, '')
           .trim();
         
-        // Remove 15-digit numbers from the end
-        cleanFileName = cleanFileName.replace(/\s+\d{15}$/, '').trim();
+        // Remove parentheses and 15-digit numbers from the end
+        cleanFileName = stripParentheses(cleanFileName).replace(/\s+\d{15}$/, '').trim();
         
-        // Clean up the animal name (remove numbers if present)
-        const cleanAnimalName = animal.replace(/\s+\d{15}$/, '').trim();
+        // Clean up the animal name (remove parentheses and numbers if present)
+        const cleanAnimalName = stripParentheses(animal).replace(/\s+\d{15}$/, '').trim();
         
-        // Try exact match first
-        let isMatch = cleanFileName === cleanAnimalName;
-        
-        // If no exact match, try matching just the first part (before any numbers)
-        if (!isMatch) {
-          const fileNamePart = cleanFileName.split(' ')[0];
-          const animalNamePart = cleanAnimalName.split(' ')[0];
-          isMatch = fileNamePart === animalNamePart;
-        }
+        // Consider a match when the cleaned file name equals or starts with the cleaned animal name
+        let isMatch = cleanFileName === cleanAnimalName || cleanFileName.startsWith(cleanAnimalName);
         
         console.log(`  Comparing file: "${cleanFileName}" with animal: "${cleanAnimalName}" => ${isMatch ? '✓ MATCH' : '✗ no match'}`);
         
@@ -659,7 +674,7 @@ export async function findSheetIdByName(folderId, animalName){
   const drive = getDriveClient();
   try {
     // Extract just the name part from animalName (e.g., "קשיו" from "קשיו 939000007563363")
-    const nameOnly = animalName.split(' ')[0];
+    const nameOnly = stripParentheses(animalName).split(' ')[0];
     
     console.log(`[findSheetIdByName] Searching for: "${animalName}", extracted: "${nameOnly}"`);
     
@@ -688,10 +703,9 @@ export async function findSheetIdByName(folderId, animalName){
       // Remove "עותק של " prefix if present
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
       // Extract the name part (first word after removing prefix)
-      const fileNameOnly = nameWithoutPrefix.split(' ')[0];
-      
-      // Match if the name part matches exactly
-      const isMatch = fileNameOnly === nameOnly;
+      const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d{15}$/, '').trim();
+      // Match if the cleaned file name equals or starts with the target name
+      const isMatch = fileNameClean === nameOnly || fileNameClean.startsWith(nameOnly);
       if (isMatch) {
         console.log(`  [findSheetIdByName] ✓ MATCH FOUND: "${file.name}"`);
       }
@@ -1231,6 +1245,12 @@ function parseDMY(str) {
   return 0;
 }
 
+// Strip any parenthetical suffix from a name and trim
+function stripParentheses(name) {
+  if (!name) return '';
+  return name.toString().split('(')[0].trim();
+}
+
 /*--------------------------------------------------
   Delete animal treatments between dates
 ---------------------------------------------------*/
@@ -1648,10 +1668,15 @@ export async function saveBirthData(birthData) {
     // Add the animal to the main list and create treatment sheet
     await addAnimalToList(animalTypeKey, animalData);
     
-    // Create treatment sheet for the newborn animal
+    // Create treatment sheet for the newborn animal (non-blocking — sheet creation
+    // failure must not roll back the birth record that was already saved above)
     const treatmentSheetName = `עותק של ${birthData.animalName} ${birthData.chipId || ''}`;
-    await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
-    console.log(`Created treatment sheet for newborn: ${treatmentSheetName}`);
+    try {
+      await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
+      console.log(`Created treatment sheet for newborn: ${treatmentSheetName}`);
+    } catch (sheetErr) {
+      console.warn(`Warning: could not create treatment sheet for newborn: ${sheetErr.message}`);
+    }
     
     invalidateCache(birthData.animalSheetId);
     return { success: true };
@@ -1733,10 +1758,15 @@ export async function saveArrivalData(arrivalData) {
     // Add the animal to the main list and create treatment sheet
     await addAnimalToList(animalTypeKey, animalData);
     
-    // Create treatment sheet for the new arrival
+    // Create treatment sheet for the new arrival (non-blocking — sheet creation
+    // failure must not roll back the arrival record that was already saved above)
     const treatmentSheetName = `${arrivalData.animalName} ${arrivalData.chipId || ''}`;
-    await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
-    console.log(`Created treatment sheet for arrival: ${treatmentSheetName}`);
+    try {
+      await createAnimalTreatmentSheet(animalTypeKey, treatmentSheetName);
+      console.log(`Created treatment sheet for arrival: ${treatmentSheetName}`);
+    } catch (sheetErr) {
+      console.warn(`Warning: could not create treatment sheet for arrival: ${sheetErr.message}`);
+    }
     
     const spreadsheetId = trackingSheetId;
     invalidateCache(spreadsheetId);
@@ -2139,7 +2169,7 @@ export async function addCaregiver(caregiverData) {
 /*--------------------------------------------------
   Get animals and optionally general treatments for caregiver in ONE pass
 ---------------------------------------------------*/
-export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName, includeGeneralTreatments = true) {
+export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName, includeGeneralTreatments = true, onTreatmentFound = null) {
   try {
     await ensureConfigLoaded();
     console.log(`>>> getAnimalsForCaregiverWithTreatementsToday for caregiver: ${caregiverName}, includeGeneralTreatments: ${includeGeneralTreatments}`);
@@ -2186,21 +2216,8 @@ export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName, 
               for (const treatmentTime of treatmentTimes) {
                 console.log(`Processing treatment: isPersonal=${treatmentTime.isPersonal}, isGeneral=${treatmentTime.isGeneral}`);
                 if (treatmentTime.isPersonal === true) {
-                  allPersonalTreatments.push({
+                  const personalTreatment = {
                     animalName: matchedFile.animalName,
-                    animalType: sheets[animalType].displayName,
-                    animalTypeKey: animalType,  
-                    treatment: treatmentTime.treatment || '',
-                    medicalCase: treatmentTime.medicalCase,
-                    dosage: treatmentTime.dosage || '',
-                    date: todayStr,
-                    image: animalImage || '',
-                    isCompleted: treatmentTime.isCompleted
-                  });
-                }
-                if(treatmentTime.isGeneral === true) {
-                  allGeneralTreatments.push({
-                    animalName: matchedFile.animalName, 
                     animalType: sheets[animalType].displayName,
                     animalTypeKey: animalType,
                     treatment: treatmentTime.treatment || '',
@@ -2209,7 +2226,36 @@ export async function getAnimalsForCaregiverWithTreatementsToday(caregiverName, 
                     date: todayStr,
                     image: animalImage || '',
                     isCompleted: treatmentTime.isCompleted
-                  });
+                  };
+                  allPersonalTreatments.push(personalTreatment);
+                  if (onTreatmentFound) {
+                    try {
+                      await onTreatmentFound(personalTreatment, false);
+                    } catch (callbackError) {
+                      console.error('Error in onTreatmentFound callback:', callbackError?.message || callbackError);
+                    }
+                  }
+                }
+                if(treatmentTime.isGeneral === true) {
+                  const generalTreatment = {
+                    animalName: matchedFile.animalName,
+                    animalType: sheets[animalType].displayName,
+                    animalTypeKey: animalType,
+                    treatment: treatmentTime.treatment || '',
+                    medicalCase: treatmentTime.medicalCase,
+                    dosage: treatmentTime.dosage || '',
+                    date: todayStr,
+                    image: animalImage || '',
+                    isCompleted: treatmentTime.isCompleted
+                  };
+                  allGeneralTreatments.push(generalTreatment);
+                  if (onTreatmentFound) {
+                    try {
+                      await onTreatmentFound(generalTreatment, true);
+                    } catch (callbackError) {
+                      console.error('Error in onTreatmentFound callback:', callbackError?.message || callbackError);
+                    }
+                  }
                 }
               }
             } 
@@ -2446,6 +2492,8 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
         range,
         majorDimension: "ROWS",
       });
+      // throttle reads to avoid Google Sheets rate limits
+      await sleep(SHEET_READ_DELAY_MS);
       for (let i = 0; i < (resp.data.values ? resp.data.values.length : 0); i++) {
         const rowValues = resp.data.values[i];
         const row = resp.data.values ? { _rawData: rowValues } : null;
@@ -2454,12 +2502,21 @@ export async function hasTreatmentToday(sheetId, todayStr, excludeCheckedGeneral
         const values = resp.data.values ?? [];
         const stringDate = rowValues[0];
         const parsedRowDate = parseDMY(stringDate);
-        
-        if (parsedRowDate < parsedTodayDate)
-        {
-          break outerLoop; // Since rows are sorted by date descending, we can stop checking further
+
+        // Skip empty or invalid date strings first - don't let them stop the scan
+        if (!stringDate) {
+          // empty cell, skip
+          continue;
         }
-        if(!stringDate || !todayStr) continue;
+        if (parsedRowDate === 0) {
+          console.log('   ⚠️ Skipping row with invalid/empty date:', stringDate);
+          continue;
+        }
+
+        // If row date is older than target date, stop scanning (rows are descending by date)
+        if (parsedRowDate < parsedTodayDate) {
+          break outerLoop;
+        }
         
         
         if(parsedRowDate === parsedTodayDate) {
@@ -2709,6 +2766,9 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
         majorDimension: "ROWS",
       });
       
+      // throttle reads to avoid Google Sheets rate limits
+      await sleep(SHEET_READ_DELAY_MS);
+
       console.log(`   Got ${resp.data.values ? resp.data.values.length : 0} rows`);
       
       for (let i = 0; i < (resp.data.values ? resp.data.values.length : 0); i++) {
@@ -3160,7 +3220,8 @@ export async function updateAnimalInList(animalType, animalName, updateData = {}
     await ensureConfigLoaded();
     console.log(`>> updateAnimalInList for animal: ${animalName} of type: ${animalType}, 'Update data:', updateData`);
 
-    const spreadsheetId = ANIMAL_TREATMENT_SHEETS()[animalType]?.sheetId;
+    const animalTypeKey = await getAnimalTypeKey(animalType);
+    const spreadsheetId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey]?.sheetId;
     if (!spreadsheetId) throw new Error('ANIMAL_TREATMENT_SHEETS()[animalType]?.sheetId is required');
 
     const doc = await getDoc(spreadsheetId);
@@ -3249,7 +3310,7 @@ export async function renameAnimalTreatmentSheet(animalType, oldAnimalName, newI
     }
     
     // Extract animal name (first word before any spaces/numbers)
-    const animalNameOnly = oldAnimalName.split(' ')[0];
+    const animalNameOnly = stripParentheses(oldAnimalName).split(' ')[0];
     
     // Use user OAuth client for Drive API
     const userAuth = getUserOAuthClient();
@@ -3411,7 +3472,7 @@ export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId
 /*-----------------------------------------------
   Optimized version: Get files with treatments for multiple dates in one call
   ----------------------------------------------*/
-export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, targetDates = []) {
+export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, targetDates = [], onFileChecked = null) {
   try {
     await ensureConfigLoaded();
     console.log(`>>> getRecentlyEditedFilesWithTreatmentsForDates for ${targetDates.length} dates...`);
@@ -3447,7 +3508,8 @@ export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, tar
       
       const response = await drive.files.list({
         q: `'${folderId}' in parents and modifiedTime >= '${startDateISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
-        fields: 'nextPageToken, files(id, name, modifiedTime)',
+        // Include parents so we can verify file belongs to the folder (extra safety)
+        fields: 'nextPageToken, files(id, name, modifiedTime, parents)',
         spaces: 'drive',
         pageSize: 1000, // Maximum allowed by Google Drive API
         pageToken: pageToken
@@ -3469,9 +3531,16 @@ export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, tar
     
     // Check all dates for each file in a single call
     for (const file of allFiles) {
+      // Verify this file actually belongs to the folder we searched
+      const parents = file.parents || [];
+      if (!parents.includes(folderId)) {
+        console.warn(`   ⚠️ Skipping file not in expected folder: ${file.name} (${file.id}) - parents: ${parents.join(', ')}`);
+        continue;
+      }
+
       console.log(`   Checking file: ${file.name} (${file.id})`);
       console.log(`   ℹ️ File modified at ${file.modifiedTime}`);
-      
+
       const dateResults = await hasTreatmentForDates(file.id, dateStrings, false, file.modifiedTime);
       console.log(`   Results for ${file.name}:`, Object.entries(dateResults).map(([date, res]) => `${date}: ${res.hasTreatment} (${res.treatmentTimes?.length || 0} slots)`).join(', '));
       
@@ -3491,8 +3560,18 @@ export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, tar
           resultsByDate[dateStr].push(file.name, treatmentTimes);
         }
       }
+
+      // Let the caller stream this file's results immediately instead of
+      // waiting for every file in the folder to be checked.
+      if (onFileChecked) {
+        try {
+          await onFileChecked(file.name, dateResults);
+        } catch (callbackError) {
+          console.error('Error in onFileChecked callback:', callbackError?.message || callbackError);
+        }
+      }
     }
-    
+
     return resultsByDate;
   } catch (error) {
     console.error('Error in getRecentlyEditedFilesWithTreatmentsForDates:', error);
@@ -3610,21 +3689,19 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
     const sheetsApi = google.sheets({ version: 'v4', auth: userAuth });
     const drive = google.drive({ version: 'v3', auth: userAuth });
 
-
-
-
-    console.log('Creating Finished 1');
-    // 2) Create the spreadsheet using Drive API
+    // Create the spreadsheet using Drive API (must use user OAuth so the file
+    // is owned by the human user and counts against their quota, not the
+    // service account's 15 GB free quota which can be exhausted).
     const createResponse = await drive.files.create({
       requestBody: {
         name: sheetName,
         mimeType: 'application/vnd.google-apps.spreadsheet',
         parents: [folderId],
       },
+      supportsAllDrives: true,
       fields: 'id',
     });
 
-    
     console.log('new sheet name:', sheetName);
     const newSpreadsheetId = createResponse.data.id;
     console.log('Created spreadsheet. ID:', newSpreadsheetId);
@@ -3633,23 +3710,11 @@ export async function createAnimalTreatmentSheet(animalType, sheetName) {
     const spreadsheetInfo = await sheetsApi.spreadsheets.get({
       spreadsheetId: newSpreadsheetId,
     });
-    
+
     const firstSheetName = spreadsheetInfo.data.sheets[0].properties.title;
     console.log('First sheet name:', firstSheetName);
 
-    // 3) Move the file to the correct folder using Drive API
-    try {
-      await drive.files.update({
-        fileId: newSpreadsheetId,
-        addParents: folderId,
-        fields: 'id, parents',
-      });
-      console.log('Moved spreadsheet to folder:', folderId);
-    } catch (moveError) {
-      console.warn('Could not move file to folder (continuing anyway):', moveError.message);
-    }
-
-    // 4) Add headers to the new sheet
+    // Add headers to the new sheet
     const headers = ['תאריך', 'יום', 'בוקר', 'צהריים', 'ערב', 'טיפול כללי','טיפול אישי', 'טיפול', 'מינון', 'מתן', 'משך', 'מתחם', 'סיבת טיפול', 'הערות'];
 
     await sheetsApi.spreadsheets.values.update({
@@ -3880,6 +3945,8 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
       spreadsheetId,
       range: `${sheet.title}!1:1`
     });
+    // throttle reads to avoid Google Sheets rate limits
+    await sleep(SHEET_READ_DELAY_MS);
     
     const headers = headerResponse.data.values?.[0] || [];
     const generalTreatmentIndices = [];
@@ -3911,6 +3978,8 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
           spreadsheetId,
           range: `${sheet.title}!1:1`
         });
+        // throttle reads to avoid Google Sheets rate limits
+        await sleep(SHEET_READ_DELAY_MS);
         
         const currentHeaders = currentHeaderResponse.data.values?.[0] || [];
         const currentGeneralIndices = [];
@@ -3949,8 +4018,8 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
         deletedCount++;
         console.log(`Deleted duplicate column ${deletedCount}`);
         
-        // Small delay to ensure API state is consistent
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Small delay to ensure API state is consistent (increased to 1000ms)
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
       console.log(`Deleted ${deletedCount} duplicate general treatment columns`);
@@ -3969,6 +4038,8 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
           spreadsheetId,
           range: `${sheet.title}!1:1`
         });
+        // throttle reads to avoid Google Sheets rate limits
+        await sleep(SHEET_READ_DELAY_MS);
         
         const currentHeaders = currentHeaderResponse.data.values?.[0] || [];
         const currentPersonalIndices = [];
@@ -4007,8 +4078,8 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
         deletedCount++;
         console.log(`Deleted duplicate column ${deletedCount}`);
         
-        // Small delay to ensure API state is consistent
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Small delay to ensure API state is consistent (increased to 1000ms)
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
       console.log(`Deleted ${deletedCount} duplicate personal treatment columns`);
@@ -4092,12 +4163,11 @@ export async function addGeneralTreatmentColumnToSheet(spreadsheetId){
   } 
 }
   
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+// `sleep` helper is defined earlier in this file; reuse that definition.
 
 async function withSheetsRetry(fn, maxAttempts = 5) {
-  let delay = 2000; // start with 2 seconds
+  // Start with a larger initial delay to be more conservative with Google APIs
+  let delay = 5000; // start with 5 seconds
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -4210,8 +4280,10 @@ export async function saveAnimalPhoto(animalType, animalName, photoBase64) {
     
     await photoSheet.saveUpdatedCells();
     console.log('Photo saved successfully');
-    
+
     invalidateCache(spreadsheetId);
+    // Also evict the photo-specific cache entry so the next read returns the new photo
+    deleteFromCache('animal-photos', 'photo', `${animalType}-${animalName}`);
     return { success: true };
   } catch (error) {
     console.error('Error in saveAnimalPhoto:', error);
@@ -4223,32 +4295,38 @@ export async function saveAnimalPhoto(animalType, animalName, photoBase64) {
   Save daily event to DAILY_EVENTS sheet
   Headers: תאריך	אירועים
 ---------------------------------------------------*/
-export async function saveDailyEvent(date, event) {
+export async function saveDailyEvent(date, event, type = '') {
   try {
-    console.log(`>> saveDailyEvent: date=${date}, event=${event}`);
+    console.log(`>> saveDailyEvent: date=${date}, event=${event}, type=${type}`);
     await ensureConfigLoaded();
-    
+
     const dailyEventsSheetId = process.env.DAILY_EVENTS_ID;
     if (!dailyEventsSheetId) {
       throw new Error('DAILY_EVENTS_ID not found in configuration sheet');
     }
-    
+
     const doc = await getDoc(dailyEventsSheetId);
-    
+
     // Find the "יומי" tab
     const dailySheet = doc.sheetsByTitle['יומי'];
     if (!dailySheet) {
       throw new Error('Sheet "יומי" not found in daily events document');
     }
-    
+
     await dailySheet.loadHeaderRow();
-    
+
+    // Auto-migrate the sheet to add a "type" column if it doesn't exist yet
+    if (!dailySheet.headerValues.includes('type')) {
+      await dailySheet.setHeaderRow([...dailySheet.headerValues, 'type']);
+    }
+
     // Add a new row with the event
     await dailySheet.addRow({
       'תאריך': date || '',
-      'אירועים': event || ''
+      'אירועים': event || '',
+      'type': type || ''
     });
-    
+
     console.log(`Daily event saved for ${date}`);
     invalidateCache(dailyEventsSheetId);
     return { success: true };
@@ -4289,19 +4367,22 @@ export async function getDailyEvents(date) {
     await dailySheet.loadHeaderRow();
     const headers = dailySheet.headerValues;
     const headerMap = {};
-    
+
     headers.forEach((name, idx) => {
       headerMap[name.trim()] = idx;
     });
-    
+
     const rows = await dailySheet.getRows();
-    
-    // Filter rows by date and return events
+
+    // Filter rows by date and return events with their tag (type)
     const events = rows
       .filter(row => row._rawData?.[headerMap['תאריך']] === date)
-      .map(row => row._rawData?.[headerMap['אירועים']] || '')
-      .filter(event => event); // Remove empty events
-    
+      .map(row => ({
+        text: row._rawData?.[headerMap['אירועים']] || '',
+        type: row._rawData?.[headerMap['type']] || ''
+      }))
+      .filter(event => event.text); // Remove empty events
+
     console.log(`Found ${events.length} events for ${date}`);
     
     // Store in cache

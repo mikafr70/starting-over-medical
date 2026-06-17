@@ -8,10 +8,11 @@ import { Navbar } from "./components/Navbar";
 import { Toaster } from "./components/ui/sonner";
 import { MedicalRecords } from "./components/MedicalRecords";
 import { PersonalTreatments } from "./components/PersonalTreatments";
+import Tasks from "./components/Tasks";
 import React from "react";
 import { useEffect } from "react";
 
-type Screen = "login" | "dashboard" | "schedule" | "profile" | "medicalRecords" | "addTreatment" | "addTreatmentFromSchedule" | "personalTreatments";
+type Screen = "login" | "dashboard" | "schedule" | "profile" | "medicalRecords" | "addTreatment" | "addTreatmentFromSchedule" | "personalTreatments" | "tasks";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>("login");
@@ -40,7 +41,7 @@ export default function App() {
   };
 
   const handleNavigate = (screen: string) => {
-    if (screen === "dashboard" || screen === "schedule" || screen === "medicalRecords" || screen === "personalTreatments") {
+    if (screen === "dashboard" || screen === "schedule" || screen === "medicalRecords" || screen === "personalTreatments" || screen === "tasks") {
       // Don't update previousScreen when navigating via navbar, keep it for back navigation
       setCurrentScreen(screen as Screen);
     }
@@ -132,11 +133,15 @@ export default function App() {
       )}
 
       {currentScreen === "personalTreatments" && (
-        <PersonalTreatments 
+        <PersonalTreatments
           onSelectAnimal={handleSelectAnimal}
           onAddTreatment={handleAddTreatmentFromPersonalTreatments}
           email={userEmail}
         />
+      )}
+
+      {currentScreen === "tasks" && (
+        <Tasks />
       )}
 
       {currentScreen === "profile" && (

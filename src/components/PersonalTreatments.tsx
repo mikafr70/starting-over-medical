@@ -61,6 +61,10 @@ interface Animal {
   in_treatment?: string;
   animalType: string;
   image?: string;
+  treatment?: string;
+  medicalCase?: string;
+  dosage?: string;
+  date?: string;
   uncheckedTreatments?: Treatment[];
   isPersonalComplete?: boolean;
   isPersonalIncomplete?: boolean;
@@ -73,10 +77,12 @@ const animalTypeToHebrew: { [key: string]: string } = {
     pig: "חזיר", 
     cow: "פרה",
     cat: "חתול", 
-    rabbit: "ארנב", 
+    rabbit: "ארנב",
     poultrey: "עוף",
-    dog: "כלב"
-};  
+    dog: "כלב",
+    camel: "גמל",
+    mule: "פרד"
+};
 
 interface PersonalTreatmentsProps {
   onSelectAnimal: (animalType: string, animalName: string) => void;
@@ -89,6 +95,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
   const [animalsForTodayList, setAnimalsForTodayList] = useState<Animal[]>([]);
   const [generalTreatments, setGeneralTreatments] = useState<GeneralTreatment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isStreamingTreatments, setIsStreamingTreatments] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [confirmRemoveDialogOpen, setConfirmRemoveDialogOpen] = useState(false);
@@ -158,37 +165,79 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
         return;
       }
 
-      // 2. Fetch both animals and general treatments in ONE API call
-      console.log('🔵 Fetching animals AND general treatments in single call');
+      // 2. Stream animals and general treatments, showing each one as it's found
+      console.log('🔵 Streaming animals AND general treatments');
+      setAnimalsForTodayList([]);
+      setGeneralTreatments([]);
+      setIsLoading(false);
+      setIsStreamingTreatments(true);
+
+      const personalList: any[] = [];
+      const generalList: GeneralTreatment[] = [];
+
       const response = await fetch(`/api/animals?caregiver=${encodeURIComponent(name)}&includeGeneralTreatments=true`);
-      const data = await response.json();
-      
-      const rawPersonalTreatments = Array.isArray(data.allPersonalTreatments) ? data.allPersonalTreatments : [];
-      const generalList = Array.isArray(data.allGeneralTreatments) ? data.allGeneralTreatments : [];
-      
-      // Map the treatments to the format the component expects
-      const list = rawPersonalTreatments.map((treatment: any) => ({
-        id: `${treatment.animalTypeKey}-${treatment.animalName}`,
-        name: treatment.animalName,
-        animalType: treatment.animalTypeKey,
-        image: treatment.image || '',
-        treatment: treatment.treatment || '',
-        medicalCase: treatment.medicalCase || '',
-        dosage: treatment.dosage || '',
-        date: treatment.date || '',
-        isPersonalIncomplete: !treatment.isCompleted,
-        isPersonalComplete: treatment.isCompleted
-      }));
-      
-      setAnimalsForTodayList(list);
-      setGeneralTreatments(generalList);
-      
-      console.log("%%%%%%%%%%%% Personal Treatments - Animals fetched:", list);
+      const reader = response.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        try {
+          const chunk = JSON.parse(trimmed);
+          if (chunk.complete) {
+            console.log(`✅ Caregiver stream complete - ${chunk.totalPersonal} personal, ${chunk.totalGeneral} general`);
+            return;
+          }
+          if (!chunk.treatment) return;
+          const treatment = chunk.treatment;
+          if (chunk.isGeneral) {
+            generalList.push(treatment);
+            setGeneralTreatments([...generalList]);
+          } else {
+            personalList.push({
+              id: `${treatment.animalTypeKey}-${treatment.animalName}`,
+              name: treatment.animalName,
+              animalType: treatment.animalTypeKey,
+              image: treatment.image || '',
+              treatment: treatment.treatment || '',
+              medicalCase: treatment.medicalCase || '',
+              dosage: treatment.dosage || '',
+              date: treatment.date || '',
+              isPersonalIncomplete: !treatment.isCompleted,
+              isPersonalComplete: treatment.isCompleted
+            });
+            setAnimalsForTodayList([...personalList]);
+          }
+        } catch (parseError) {
+          console.error('Error parsing caregiver stream line:', parseError, line);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          processLine(line);
+        }
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        processLine(buffer);
+      }
+
+      console.log("%%%%%%%%%%%% Personal Treatments - Animals fetched:", personalList);
       console.log("%%%%%%%%%%%% Personal Treatments - General treatments fetched:", generalList);
     } catch (err) {
       console.error('Error in fetchCaregiverAndAnimals:', err);
     } finally {
       setIsLoading(false);
+      setIsStreamingTreatments(false);
       fetchInProgressRef.current = false;
     }
   };
@@ -578,9 +627,16 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
     <div className="min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col" style={{ backgroundColor: '#F7F3ED' }}> 
       <div className="max-w-7xl mx-auto w-full flex-shrink-0">
         <div className="mb-8">
-          <h1 className="mb-2 text-right text-[24px]">טיפולים אישיים - {caregiverName}</h1>
+          <h1 className="mb-2 text-right text-[24px] flex items-center justify-end gap-2">
+            {isStreamingTreatments && (
+              <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#A67C52' }} />
+            )}
+            טיפולים אישיים - {caregiverName}
+          </h1>
           <p className="text-muted-foreground text-right">
-            יש לך {animalsForTodayList.filter(a => a.isPersonalComplete || a.isPersonalIncomplete).length} חיות עם טיפולים להיום
+            {isStreamingTreatments
+              ? 'טוען טיפולים...'
+              : `יש לך ${animalsForTodayList.filter(a => a.isPersonalComplete || a.isPersonalIncomplete).length} חיות עם טיפולים להיום`}
           </p>
           <div className="mt-4 flex gap-2">
             <Button
@@ -877,7 +933,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
           </Card>
         )}
 
-        {animalsForTodayList.length === 0 && generalTreatments.length === 0 && (
+        {!isStreamingTreatments && animalsForTodayList.length === 0 && generalTreatments.length === 0 && (
           <Card style={{ backgroundColor: '#EDE7DF', borderColor: '#EDE7DF' }}>
             <CardContent className="text-center py-8">
               <p className="text-muted-foreground">אין חיות שהוקצו לך</p>

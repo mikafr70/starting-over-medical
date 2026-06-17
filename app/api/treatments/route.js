@@ -122,16 +122,10 @@ export async function GET(request) {
 
       //console.log('All treatments fetched for animal:', allTreatments);
 
-      // Filter treatments to only those within 1 week before/after today
-      // treatment date is the first column 
-      const now = new Date();
-      const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+      // Return all treatments for client-side Today/History/Future filtering
       const treatments = allTreatments.filter(tr => {
         const parsedDate = parseDDMMYYYY(tr.date);
-        const trDate = parsedDate ? new Date(parsedDate) : null;
-        if (!parsedDate || isNaN(parsedDate.getTime())) return false;
-        return Math.abs(parsedDate.getTime() - now.getTime()) <= oneWeekMs;
-        
+        return parsedDate && !isNaN(parsedDate.getTime());
       });
 
       return new Response(JSON.stringify({ animal: targetAnimal, treatments }), {

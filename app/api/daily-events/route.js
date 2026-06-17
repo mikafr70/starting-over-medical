@@ -2,10 +2,10 @@ import { saveDailyEvent, getDailyEvents, deleteDailyEvent } from '@/src/lib/shee
 
 export async function POST(req) {
   try {
-    const { date, event } = await req.json();
-    
-    console.log('Received daily event:', { date, event });
-    
+    const { date, event, type } = await req.json();
+
+    console.log('Received daily event:', { date, event, type });
+
     // Validate required fields
     if (!date || !event) {
       return new Response(
@@ -13,8 +13,8 @@ export async function POST(req) {
         { status: 400 }
       );
     }
-    
-    await saveDailyEvent(date, event);
+
+    await saveDailyEvent(date, event, type);
     
     return new Response(
       JSON.stringify({ success: true, message: 'Event saved successfully' }),

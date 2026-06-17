@@ -1,4 +1,4 @@
-import { Home, Calendar, BookOpen, Heart, LogOut, ClipboardList } from "lucide-react";
+import { Home, Calendar, BookOpen, Heart, LogOut, ClipboardList, ListTodo } from "lucide-react";
 import { Button } from "./ui/button";
 import React from "react";
 
@@ -55,6 +55,15 @@ export function Navbar({ currentScreen, onNavigate, onLogout, username }: Navbar
             >
               <BookOpen className="w-4 h-4" />
               <span className="hidden sm:inline"> תיקים רפואיים</span>
+            </Button>
+            <Button
+              variant={currentScreen === "tasks" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => onNavigate("tasks")}
+              className="gap-2"
+            >
+              <ListTodo className="w-4 h-4" />
+              <span className="hidden sm:inline">משימות</span>
             </Button>
           </div>
 

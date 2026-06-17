@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { ArrowRight, Calendar, Pill, Loader2, Upload, X } from "lucide-react";
+import { ArrowRight, Calendar, Pill, Loader2, Upload, X, Pencil } from "lucide-react";
 import { API_ENDPOINTS } from "../config/api";
 import { toast } from "sonner";
 import React from "react";
@@ -29,44 +29,49 @@ export function TreatmentCheckboxes({
     return { filter: 'grayscale(100%)', opacity: 0.2 };                     // gray + empty
   };
 
-  const toggle = (current: string | undefined): string => {
-    if (current === '') return 'FALSE';        // from gray → black unchecked
-    if (current === 'TRUE') return 'FALSE';    // checked → unchecked
-    return 'TRUE';                             // unchecked → checked
-  };
+  const toggle = (current: string | undefined): string =>
+    current === 'TRUE' ? 'FALSE' : 'TRUE';
+
+  const makeStyleWithCursor = (val: string | undefined) => ({
+    ...makeStyle(toBool(val)),
+    cursor: (val === 'TRUE' || val === 'FALSE') ? 'pointer' : 'default',
+  });
 
   return (
     <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
 
       {/* Morning */}
-      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: makeStyleWithCursor(treatments.morning).cursor }}>
         <input
           type="checkbox"
           checked={treatments.morning === 'TRUE'}
+          disabled={!treatments.morning || treatments.morning === ''}
           onChange={() => onChange('morning', toggle(treatments.morning))}
-          style={makeStyle(toBool(treatments.morning))}
+          style={makeStyleWithCursor(treatments.morning)}
         />
         בוקר
       </label>
 
       {/* Noon */}
-      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: makeStyleWithCursor(treatments.noon).cursor }}>
         <input
           type="checkbox"
           checked={treatments.noon === 'TRUE'}
+          disabled={!treatments.noon || treatments.noon === ''}
           onChange={() => onChange('noon', toggle(treatments.noon))}
-          style={makeStyle(toBool(treatments.noon))}
+          style={makeStyleWithCursor(treatments.noon)}
         />
         צהריים
       </label>
 
       {/* Evening */}
-      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <label dir="rtl" className="text-right block" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: makeStyleWithCursor(treatments.evening).cursor }}>
         <input
           type="checkbox"
           checked={treatments.evening === 'TRUE'}
+          disabled={!treatments.evening || treatments.evening === ''}
           onChange={() => onChange('evening', toggle(treatments.evening))}
-          style={makeStyle(toBool(treatments.evening))}
+          style={makeStyleWithCursor(treatments.evening)}
         />
         ערב
       </label>
@@ -87,6 +92,7 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
   const [editAnimal, setEditAnimal] = useState<any | null>(null);
   const [editTreatments, setEditTreatments] = useState<any[]>([]);
   const [savingAnimal, setSavingAnimal] = useState(false);
+  const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
   const [savingTreatments, setSavingTreatments] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [animalPhoto, setAnimalPhoto] = useState<string | null>(null);
@@ -96,7 +102,8 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
   const [animal, setAnimal] = useState<any | null>(null);
   const [treatments, setTreatments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
+  const [treatmentFilter, setTreatmentFilter] = useState<'today' | 'history' | 'future'>('today');
+
   console.log('$$$$$$$$$AnimalProfile Render:', { animalType, animalName });
   
   useEffect(() => {
@@ -437,11 +444,29 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
 
               <div className="flex items-center justify-between mb-2 gap-2">
                 <span className="text-right text-[20px] font-bold">{editAnimal.name}</span>
-                <input
-                  className="text-right text-[18px] font-bold text-gray-600 bg-gray-100 rounded px-2 py-1"
-                  value={editAnimal?.id ?? ''}
-                  onChange={e => setEditAnimal((a: any) => ({ ...a, id: e.target.value }))}
-                />
+                {isEditingPersonalInfo ? (
+                  <input
+                    className="text-right text-[18px] font-bold text-gray-600 bg-gray-100 rounded px-2 py-1"
+                    value={editAnimal?.id ?? ''}
+                    onChange={e => setEditAnimal((a: any) => ({ ...a, id: e.target.value }))}
+                  />
+                ) : (
+                  <span className="text-right text-[18px] font-bold text-gray-600">{animal?.id ?? ''}</span>
+                )}
+                {!isEditingPersonalInfo && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => {
+                      setEditAnimal(animal);
+                      setIsEditingPersonalInfo(true);
+                    }}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    ערוך
+                  </Button>
+                )}
               </div>
               <div className="space-y-1 text-sm">
                 {[
@@ -461,54 +486,71 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                 ].map(([label, key]) => (
                   <div key={key} className="flex items-center gap-2">
                     <strong>{label}:</strong>
-                    <input
-                      className="flex-1 bg-gray-100 rounded px-2 py-1"
-                      value={editAnimal?.[key] ?? ''}
-                      onChange={e => setEditAnimal((a: any) => ({ ...a, [key]: e.target.value }))}
-                    />
+                    {isEditingPersonalInfo ? (
+                      <input
+                        className="flex-1 bg-gray-100 rounded px-2 py-1"
+                        value={editAnimal?.[key] ?? ''}
+                        onChange={e => setEditAnimal((a: any) => ({ ...a, [key]: e.target.value }))}
+                      />
+                    ) : (
+                      <span className="flex-1">{animal?.[key] || '-'}</span>
+                    )}
                   </div>
                 ))}
               </div>
-              <div className="flex justify-end mt-4">
-                <Button
-                  variant="default"
-                  disabled={savingAnimal}
-                  onClick={async () => {
-                    setSavingAnimal(true);
-                    setIsProcessing(true);
-                    try {
-                      const res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName), {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ animalType, updatedAnimal: editAnimal })
-                      });
-                      if (!res.ok) throw new Error('Failed to save animal data');
-                      // Optionally refetch updated animal data
-                      const updated = await res.json();
-                      setAnimal(updated.animal);
-                      setEditAnimal(updated.animal);
-                    } catch (err) {
-                      // Optionally show error
-                    } finally {
-                      setSavingAnimal(false);
-                      setIsProcessing(false);
-                    }
-                  }}
-                >
-                  שמור נתונים
-                </Button>
-              </div>
+              {isEditingPersonalInfo && (
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button
+                    variant="outline"
+                    disabled={savingAnimal}
+                    onClick={() => {
+                      setEditAnimal(animal);
+                      setIsEditingPersonalInfo(false);
+                    }}
+                  >
+                    ביטול
+                  </Button>
+                  <Button
+                    variant="default"
+                    disabled={savingAnimal}
+                    onClick={async () => {
+                      setSavingAnimal(true);
+                      setIsProcessing(true);
+                      try {
+                        const res = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName), {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ animalType, updatedAnimal: editAnimal })
+                        });
+                        if (!res.ok) throw new Error('Failed to save animal data');
+                        // Optionally refetch updated animal data
+                        const updated = await res.json();
+                        setAnimal(updated.animal);
+                        setEditAnimal(updated.animal);
+                        setIsEditingPersonalInfo(false);
+                      } catch (err) {
+                        // Optionally show error
+                      } finally {
+                        setSavingAnimal(false);
+                        setIsProcessing(false);
+                      }
+                    }}
+                  >
+                    שמור נתונים
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Left side: treatments from last week */}
+          {/* Left side: treatments */}
           <div className="lg:col-span-2 space-y-6">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Pill className="w-5 h-5" style={{ color: '#A67C52' }} />
-                    <span className="font-bold text-lg">רשומות טיפול (שבוע אחרון)</span>
+                    <span className="font-bold text-lg">רשומות טיפול</span>
                   </div>
                   <Button
                     variant="default"
@@ -518,7 +560,6 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                       setSavingTreatments(true);
                       setIsProcessing(true);
                       try {
-                        // Ensure morning, noon, evening are always 'TRUE', 'FALSE', or ''
                         const normalizeCheckbox = (val: any) => {
                           if (val === 'TRUE') return 'TRUE';
                           if (val === 'FALSE') return 'FALSE';
@@ -536,7 +577,6 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                           body: JSON.stringify({ treatments: treatmentsToSave })
                         });
                         if (!res.ok) throw new Error('Failed to save treatments');
-                        // Optionally refetch updated treatments
                         const updated = await fetch(API_ENDPOINTS.treatmentsProfile(animalType, animalName));
                         const data = await updated.json();
                         setTreatments(data.treatments || []);
@@ -552,31 +592,71 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                     שמור טיפולים
                   </Button>
                 </div>
-                <CardDescription className="text-right">
-                  טיפולים שבוצעו או מתוכננים בשבוע האחרון
-                </CardDescription>
+                {/* Filter tabs */}
+                <div className="flex gap-2 mt-3" dir="rtl">
+                  {([
+                    { key: 'today', label: 'היום' },
+                    { key: 'history', label: 'היסטוריה' },
+                    { key: 'future', label: 'עתיד' },
+                  ] as const).map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setTreatmentFilter(tab.key)}
+                      className={`px-4 py-1 rounded-full text-sm font-medium transition-colors ${
+                        treatmentFilter === tab.key
+                          ? 'text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      style={treatmentFilter === tab.key ? { backgroundColor: '#6B9080' } : {}}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
               </CardHeader>
               <CardContent>
+                {(() => {
+                  const parseDMY = (dateStr: string): Date | null => {
+                    if (!dateStr) return null;
+                    const [d, m, y] = dateStr.split(/[\/.-]/).map(Number);
+                    if (!d || !m || !y) return null;
+                    return new Date(y, m - 1, d);
+                  };
+
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+
+                  const filteredTreatments = editTreatments.filter(t => {
+                    const d = parseDMY(t.date);
+                    if (!d) return false;
+                    d.setHours(0, 0, 0, 0);
+                    if (treatmentFilter === 'today') return d.getTime() === today.getTime();
+                    if (treatmentFilter === 'history') return d.getTime() < today.getTime();
+                    return d.getTime() > today.getTime();
+                  }).sort((a, b) => {
+                    const da = parseDMY(a.date)!;
+                    const db = parseDMY(b.date)!;
+                    // history: newest first (descending); future: soonest first (ascending)
+                    return treatmentFilter === 'future'
+                      ? da.getTime() - db.getTime()
+                      : db.getTime() - da.getTime();
+                  });
+
+                  const emptyMessages: Record<string, string> = {
+                    today: 'לא נמצאו טיפולים להיום',
+                    history: 'לא נמצאו טיפולים קודמים',
+                    future: 'לא נמצאו טיפולים עתידיים',
+                  };
+
+                  return (
                 <div className="space-y-3">
-                  {editTreatments.length === 0 ? (
-                    <div className="text-center text-gray-500">לא נמצאו טיפולים בשבוע האחרון</div>
+                  {filteredTreatments.length === 0 ? (
+                    <div className="text-center text-gray-500">{emptyMessages[treatmentFilter]}</div>
                   ) : (
-                    editTreatments.map((treatment, idx) => {
-                      // Check if this treatment is for today
-                      const today = new Date();
-                      const todayStr = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
-                      
-                      // Also check with padded zeros format (DD/MM/YYYY)
-                      const todayPadded = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
-                      
-                      const isToday = treatment.date === todayStr || treatment.date === todayPadded;
-                      
-                      console.log('Treatment date check:', { 
-                        treatmentDate: treatment.date, 
-                        todayStr, 
-                        todayPadded, 
-                        isToday 
-                      });
+                    filteredTreatments.map((treatment) => {
+                      // Find original index in editTreatments for onChange handlers
+                      const idx = editTreatments.indexOf(treatment);
+                      const isToday = treatmentFilter === 'today';
                       
                       return (
                         <div
@@ -663,6 +743,8 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                     })
                   )}
                 </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           </div>
