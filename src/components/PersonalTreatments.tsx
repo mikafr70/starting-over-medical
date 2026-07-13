@@ -117,6 +117,8 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [selectedNoteDate, setSelectedNoteDate] = useState<string>(''); // DD.MM.YYYY format
+  const [dailyEvents, setDailyEvents] = useState<{text:string; type:string}[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
   const [completingTreatment, setCompletingTreatment] = useState<string | null>(null);
 
   // Get today's date in DD.MM.YYYY format
@@ -270,6 +272,24 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
 
     fetchNotes();
   }, [caregiverName, selectedNoteDate]);
+
+  // Fetch daily events for the selected note date
+  useEffect(() => {
+    const fetchEvents = async () => {
+      if (!selectedNoteDate) return;
+      try {
+        setLoadingEvents(true);
+        const res = await fetch(`/api/daily-events?date=${encodeURIComponent(selectedNoteDate)}`);
+        const data = await res.json();
+        if (res.ok) setDailyEvents(data.events || []);
+      } catch (err) {
+        console.error('Error fetching daily events:', err);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+    fetchEvents();
+  }, [selectedNoteDate]);
 
   // Save caregiver note
   const handleSaveNote = async () => {
@@ -942,64 +962,81 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
         )}
           </div>
 
-          {/* Caregiver Notes Panel - 4 columns */}
+          {/* Caregiver Notes & Events Panel - 4 columns */}
           <div className="xl:col-span-4">
             <Card className="xl:sticky xl:top-6">
               <CardHeader>
-                <CardTitle className="text-right">הערות אישיות</CardTitle>
-                <CardDescription className="text-right">
-                  {selectedNoteDate && `הערות והודעות ל-${selectedNoteDate}`}
-                </CardDescription>
+                <CardTitle className="text-right">הערות ואירועים</CardTitle>
+                {/* Date picker in header so it clearly controls what's being viewed */}
+                <div className="flex items-center gap-2 pt-1">
+                  <label className="text-sm font-medium whitespace-nowrap">תאריך:</label>
+                  <input
+                    type="date"
+                    value={selectedNoteDate ? selectedNoteDate.split('.').reverse().join('-') : ''}
+                    onChange={e => {
+                      const [year, month, day] = e.target.value.split('-');
+                      setSelectedNoteDate(`${day}.${month}.${year}`);
+                    }}
+                    className="flex-1 px-3 py-2 border rounded-md text-sm"
+                  />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Notes List */}
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                  {loadingNotes ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                    </div>
-                  ) : caregiverNotes.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8 text-sm">אין הערות ליום</p>
-                  ) : (
-                    caregiverNotes.map((note, index) => (
-                      <div 
-                        key={index} 
-                        className="group p-3 bg-muted rounded-lg text-right text-sm border flex items-start justify-between gap-2 hover:bg-muted/80 transition-colors"
-                        style={{ borderColor: '#E7E7E7' }}
-                      >
-                        <span className="flex-1">{note}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                          onClick={() => handleDeleteNote(note)}
-                        >
-                          <X className="h-4 w-4 text-destructive" />
-                        </Button>
+                {/* Personal Notes */}
+                <div>
+                  <p className="text-sm font-medium text-right mb-2">הערות אישיות</p>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {loadingNotes ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin text-primary" />
                       </div>
-                    ))
-                  )}
+                    ) : caregiverNotes.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-4 text-sm">אין הערות ליום</p>
+                    ) : (
+                      caregiverNotes.map((note, index) => (
+                        <div
+                          key={index}
+                          className="group p-3 bg-muted rounded-lg text-right text-sm border flex items-start justify-between gap-2 hover:bg-muted/80 transition-colors"
+                          style={{ borderColor: '#E7E7E7' }}
+                        >
+                          <span className="flex-1">{note}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                            onClick={() => handleDeleteNote(note)}
+                          >
+                            <X className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Daily Events for the same date */}
+                <div className="border-t pt-3">
+                  <p className="text-sm font-medium text-right mb-2">אירועים יומיים</p>
+                  <div className="space-y-2 max-h-[180px] overflow-y-auto">
+                    {loadingEvents ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                      </div>
+                    ) : dailyEvents.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-4 text-sm">אין אירועים ליום</p>
+                    ) : (
+                      dailyEvents.map((event, idx) => (
+                        <div key={idx} className="p-2 bg-muted rounded-lg text-right text-sm border space-y-1" style={{ borderColor: '#E7E7E7' }}>
+                          <span className="block">{event.text}</span>
+                          {event.type && <span className="text-xs text-muted-foreground">{event.type}</span>}
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
 
                 {/* Note Input */}
-                <div className="space-y-2 pt-4 border-t">
-                  {/* Date Picker */}
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm font-medium text-right whitespace-nowrap">תאריך:</label>
-                    <input
-                      type="date"
-                      value={selectedNoteDate ? 
-                        // Convert DD.MM.YYYY to YYYY-MM-DD for input
-                        selectedNoteDate.split('.').reverse().join('-') : 
-                        ''}
-                      onChange={(e) => {
-                        // Convert YYYY-MM-DD to DD.MM.YYYY
-                        const [year, month, day] = e.target.value.split('-');
-                        setSelectedNoteDate(`${day}.${month}.${year}`);
-                      }}
-                      className="flex-1 px-3 py-2 border rounded-md text-sm"
-                    />
-                  </div>
+                <div className="space-y-2 pt-3 border-t">
                   <Textarea
                     placeholder="הזן הערה..."
                     value={newNote}

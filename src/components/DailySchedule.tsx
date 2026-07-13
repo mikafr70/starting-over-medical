@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
@@ -110,6 +110,46 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // "In treatment" intermediate state (yellow) — stored locally, cycles between pending and in-treatment
+  const [inTreatmentSet, setInTreatmentSet] = useState<Set<string>>(new Set());
+
+  const [needsFollowUp, setNeedsFollowUp] = useState<string[]>([]);
+  const [checkingFollowUp, setCheckingFollowUp] = useState(false);
+
+  const toggleInTreatment = (key: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setInTreatmentSet(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  // Caregiver assignment state
+  const [caregivers, setCaregivers] = useState<string[]>([]);
+  const [caregiverAssignments, setCaregiverAssignments] = useState<Record<string, string>>(() => {
+    // Load non-expired assignments from localStorage on initial render
+    try {
+      const stored = JSON.parse(localStorage.getItem('caregiver-assignments') || '{}');
+      const now = Date.now();
+      const valid: Record<string, string> = {};
+      for (const [key, val] of Object.entries(stored) as [string, { name: string; expiry: number }][]) {
+        if (val.expiry > now) valid[key] = val.name;
+      }
+      return valid;
+    } catch {
+      return {};
+    }
+  });
+
+  // Notes & events panel state
+  const [eventsDate, setEventsDate] = useState<string>(() => {
+    const today = new Date();
+    return `${String(today.getDate()).padStart(2,'0')}.${String(today.getMonth()+1).padStart(2,'0')}.${today.getFullYear()}`;
+  });
+  const [dailyEvents, setDailyEvents] = useState<{text:string; type:string}[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
   // Ref to prevent duplicate fetches
   const fetchInProgressRef = useRef(false);
 
@@ -209,7 +249,40 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         if (buffer.trim()) {
           processLine(buffer);
         }
-        
+
+        // Check which animals have no future treatments beyond today
+        if (allTreatments.length > 0) {
+          setCheckingFollowUp(true);
+          try {
+            const todayMs = new Date().setHours(0, 0, 0, 0);
+            const parseDMY = (s: string) => {
+              const [d, m, y] = (s || '').split(/[\/.-]/).map(Number);
+              return (d && m && y) ? new Date(y, m - 1, d).getTime() : 0;
+            };
+            const seen = new Set<string>();
+            const unique: { animalName: string; animalTypeKey: string }[] = [];
+            for (const t of allTreatments) {
+              const k = `${t.animalTypeKey}||${t.animalName}`;
+              if (!seen.has(k)) { seen.add(k); unique.push({ animalName: t.animalName, animalTypeKey: t.animalTypeKey }); }
+            }
+            const results = await Promise.allSettled(
+              unique.map(async ({ animalName, animalTypeKey }) => {
+                const res = await fetch(`/api/treatments?profile=1&animalType=${encodeURIComponent(animalTypeKey)}&animalName=${encodeURIComponent(animalName)}`);
+                if (!res.ok) return null;
+                const data = await res.json();
+                const hasFuture = (data.treatments || []).some((t: any) => parseDMY(t.date) > todayMs);
+                return hasFuture ? null : animalName;
+              })
+            );
+            const followUp = results
+              .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled' && typeof r.value === 'string')
+              .map(r => r.value);
+            setNeedsFollowUp(followUp);
+          } finally {
+            setCheckingFollowUp(false);
+          }
+        }
+
       } catch (err) {
         console.error('Error fetching treatments:', err);
         setError('Failed to load treatments');
@@ -221,6 +294,42 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
     fetchTreatments();
   }, []);
+
+  // Fetch caregivers list once on mount
+  useEffect(() => {
+    fetch('/api/caregivers')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setCaregivers(data); })
+      .catch(err => console.error('Failed to fetch caregivers:', err));
+  }, []);
+
+  // Write a caregiver assignment to localStorage with a 12-hour expiry
+  const assignCaregiver = (treatmentKey: string, name: string) => {
+    setCaregiverAssignments(prev => ({ ...prev, [treatmentKey]: name }));
+    try {
+      const stored = JSON.parse(localStorage.getItem('caregiver-assignments') || '{}');
+      stored[treatmentKey] = { name, expiry: Date.now() + 12 * 60 * 60 * 1000 };
+      localStorage.setItem('caregiver-assignments', JSON.stringify(stored));
+    } catch { /* storage unavailable */ }
+  };
+
+  // Fetch daily events whenever the chosen date changes
+  useEffect(() => {
+    const fetchEvents = async () => {
+      if (!eventsDate) return;
+      try {
+        setLoadingEvents(true);
+        const res = await fetch(`/api/daily-events?date=${encodeURIComponent(eventsDate)}`);
+        const data = await res.json();
+        if (res.ok) setDailyEvents(data.events || []);
+      } catch (err) {
+        console.error('Error fetching daily events:', err);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+    fetchEvents();
+  }, [eventsDate]);
 
   // Helper function to convert string to number hash
   const hashCode = (str: string): number => {
@@ -281,7 +390,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
             section = "evening";
             break;
           default:
-            section = "morning";
+            return; // personal / general / unknown — skip, don't show in schedule
         }
         
         if (!acc[section]) acc[section] = [];
@@ -427,7 +536,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const renderTreatment = (treatment: Treatment) => {
     const treatmentKey = `${treatment.animalName}_${treatment.medicalCase}_${treatment.timeSlot}`;
     const isCompleted = completedTreatments.has(treatmentKey);
-    
+    const assignedCaregiver = caregiverAssignments[treatmentKey] || '';
+
     return (
       <Card
         key={treatment.id}
@@ -439,7 +549,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         <CardContent className="p-4">
           <div className="flex items-center gap-4">
             {/* Checkbox */}
-            <div 
+            <div
               className="flex-shrink-0"
               onClick={(e) => handleCheckboxClick(e, treatment)}
             >
@@ -470,13 +580,48 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
               {isCompleted ? (
                 <>
                   <CheckCircle2 className="w-5 h-5 text-green-600 animate-in zoom-in duration-300" />
-                  <Badge className="bg-green-100 text-green-800 border-green-200">
+                  <Badge
+                    className="cursor-pointer select-none bg-green-100 text-green-800 border-green-200"
+                    onClick={e => handleCheckboxClick(e, treatment)}
+                  >
                     בוצע
                   </Badge>
                 </>
+              ) : inTreatmentSet.has(treatmentKey) ? (
+                <Badge
+                  className="cursor-pointer select-none border"
+                  style={{ backgroundColor: '#FEF9C3', color: '#854D0E', borderColor: '#FDE047' }}
+                  onClick={e => toggleInTreatment(treatmentKey, e)}
+                >
+                  בטיפול
+                </Badge>
               ) : (
-                <Badge variant="outline">ממתין</Badge>
+                <Badge
+                  className="cursor-pointer select-none border"
+                  style={{ backgroundColor: '#F3F4F6', color: '#6B7280', borderColor: '#D1D5DB' }}
+                  onClick={e => toggleInTreatment(treatmentKey, e)}
+                >
+                  ממתין
+                </Badge>
               )}
+
+              {/* Caregiver assignment selector */}
+              <select
+                value={assignedCaregiver}
+                onClick={e => e.stopPropagation()}
+                onChange={e => { e.stopPropagation(); assignCaregiver(treatmentKey, e.target.value); }}
+                className="text-sm border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 max-w-[130px]"
+                style={{
+                  borderColor: assignedCaregiver ? '#6B9080' : '#D1D5DB',
+                  color: assignedCaregiver ? '#374151' : '#9CA3AF',
+                  direction: 'rtl',
+                }}
+              >
+                <option value="">בחר מטפל</option>
+                {caregivers.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
             </div>
           </div>
         </CardContent>
@@ -486,6 +631,28 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ backgroundColor: '#F7F3ED' }}>
+      {/* Follow-up alert — fixed to the right side of the viewport, visible while checking or when results exist */}
+      {(checkingFollowUp || needsFollowUp.length > 0) && (
+        <div
+          className="fixed z-50 rounded-xl shadow-lg w-72 px-8 py-6 text-black text-sm font-medium"
+          style={{ top: '10rem', left: '1rem', backgroundColor: '#FEF9C3' }}
+        >
+          {checkingFollowUp ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>בודק המשך טיפולים...</span>
+            </div>
+          ) : (
+            <div className="space-y-1 text-right">
+              <p className="font-semibold">⚠️ דרוש המשך טיפול:</p>
+              {needsFollowUp.map(name => (
+                <p key={name}>• {name}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Processing Overlay */}
       {isProcessing && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -524,8 +691,9 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
           </div>
         )}
 
-        {/* Full Width Schedule - Show always, even while loading */}
-        <div className="space-y-6">
+        {/* Schedule + Events panel */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div className="xl:col-span-8 space-y-6">
               <Card className="mb-6">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -613,7 +781,60 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                   })}
                 </div>
               )}
-        </div>
+        </div>{/* end xl:col-span-8 */}
+
+          {/* Events & Notes Panel - 4 columns */}
+          <div className="xl:col-span-4">
+            <Card className="xl:sticky xl:top-6">
+              <CardHeader>
+                <CardTitle className="text-right">אירועים והערות</CardTitle>
+                <CardDescription className="text-right">
+                  בחר תאריך לצפייה באירועים
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Date Picker */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium whitespace-nowrap">תאריך:</label>
+                  <input
+                    type="date"
+                    value={eventsDate ? eventsDate.split('.').reverse().join('-') : ''}
+                    onChange={e => {
+                      const [year, month, day] = e.target.value.split('-');
+                      setEventsDate(`${day}.${month}.${year}`);
+                    }}
+                    className="flex-1 px-3 py-2 border rounded-md text-sm"
+                  />
+                </div>
+
+                {/* Events List */}
+                <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                  {loadingEvents ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    </div>
+                  ) : dailyEvents.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8 text-sm">אין אירועים ליום זה</p>
+                  ) : (
+                    dailyEvents.map((event, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 bg-muted rounded-lg text-right text-sm border space-y-1"
+                        style={{ borderColor: '#E7E7E7' }}
+                      >
+                        <span className="block">{event.text}</span>
+                        {event.type && (
+                          <Badge variant="outline" className="text-xs">{event.type}</Badge>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+        </div>{/* end grid */}
 
         {/* Add Treatment Button - Desktop */}
         <div className="hidden md:block fixed top-24 left-8 z-10">

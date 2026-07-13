@@ -12,7 +12,7 @@ interface Task {
   type: string;
 }
 
-const TASK_TAGS = ["העברה", "איש מקצוע/טיפול", "אירוע", "המשך טיפול"];
+const TASK_TAGS = ["העברה", "איש מקצוע/טיפול", "אירוע", "המשך טיפול", "משימות", "עדכונים"];
 
 // Format a Date as DD.MM.YYYY (matches the format used across the app)
 const formatDate = (date: Date): string => {

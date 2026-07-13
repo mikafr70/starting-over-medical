@@ -6,7 +6,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { ArrowRight, Save, Loader2 } from "lucide-react";
+import { ArrowRight, Save, Loader2, Camera, X } from "lucide-react";
 import { toast } from "sonner";
 import { API_ENDPOINTS } from "../config/api";
 import { cn } from "./ui/utils";
@@ -101,6 +101,28 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
   const [notes, setNotes] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [manualCase, setManualCase] = useState("");
+  const [treatmentPhoto, setTreatmentPhoto] = useState<string>('');
+
+  const handlePhotoUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 350;
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setTreatmentPhoto(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   // Caregivers list (fetched from backend caregivers sheet)
   const [caregivers, setCaregivers] = useState<string[]>([]);
@@ -282,6 +304,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const year = d.getFullYear();
       row.date = `${day}/${month}/${year}`;
+      if (treatmentPhoto) row.photo = treatmentPhoto;
     });
 
 
@@ -472,6 +495,31 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Photo upload — only when a specific caregiver (not כללי) is selected */}
+                {caregiver && caregiver !== 'כללי' && (
+                  <div className="space-y-2">
+                    <Label dir="rtl" className="text-right block">תמונה לטיפול (אופציונלי)</Label>
+                    {treatmentPhoto ? (
+                      <div className="relative inline-block">
+                        <img src={treatmentPhoto} alt="תמונת טיפול" className="w-32 h-32 object-cover rounded-lg border" />
+                        <button
+                          type="button"
+                          onClick={() => setTreatmentPhoto('')}
+                          className="absolute -top-2 -right-2 bg-white rounded-full shadow p-0.5 text-gray-500 hover:text-red-500"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex items-center gap-2 cursor-pointer w-fit px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">
+                        <Camera className="w-4 h-4" />
+                        <span>הוסף תמונה</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                      </label>
+                    )}
+                  </div>
+                )}
 
                 {/* Editable grid: always show */}
                 <div className="md:col-span-2 space-y-2">

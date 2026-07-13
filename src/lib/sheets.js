@@ -823,7 +823,8 @@ export async function getAnimalTreatments(animalType, animalName) {
     headers.forEach((name, idx) => {
       headerMap[name.trim()] = idx;
     });
-    const treatmentsMap = rows.map(row => ({
+    const treatmentsMap = rows.map((row, index) => ({
+      rowIndex: index + 2, // sheet row number (1-based + header row)
       date: row._rawData?.[headerMap['תאריך']] || row._rawData?.[0] || '',
       day: row._rawData?.[headerMap['יום']] || '',
       morning: row._rawData?.[headerMap['בוקר']] || '',
@@ -835,7 +836,8 @@ export async function getAnimalTreatments(animalType, animalName) {
       duration: row._rawData?.[headerMap['משך']] || '',
       location: row._rawData?.[headerMap['מתחם']] || '',
       case: row._rawData?.[headerMap['סיבת טיפול']] || '',
-      notes: row._rawData?.[headerMap['הערות']] || ''
+      notes: row._rawData?.[headerMap['הערות']] || '',
+      photo: row._rawData?.[14] || '' // column O — treatment photo (base64)
     }));
 
     // Store in cache
@@ -1018,6 +1020,20 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
     const auth = getSheetsAuth();
     const sheetsApi = google.sheets({ version: 'v4', auth });
 
+    // Ensure column O has 'תמונה' header — write directly to O1 so the Sheets
+    // API extends the sheet dimensions automatically (setHeaderRow throws if the
+    // sheet doesn't already have enough columns).
+    await sheet.loadHeaderRow();
+    if (!sheet.headerValues.includes('תמונה')) {
+      await sheetsApi.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheet.title}!O1`,
+        valueInputOption: 'RAW',
+        resource: { values: [['תמונה']] }
+      });
+      console.log('>>> Added תמונה header to column O');
+    }
+
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,
       resource: {
@@ -1052,20 +1068,21 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
       const location = rowData.location || '';
       const caseField = rowData.case || '';
       const notes = rowData.notes || '';
+      const photo = rowData.photo || '';
 
-      return [date, day, morning, noon, evening, generalTreatment, personalTreatment, treatment, dosage, bodyPart, duration, location, caseField, notes];
+      return [date, day, morning, noon, evening, generalTreatment, personalTreatment, treatment, dosage, bodyPart, duration, location, caseField, notes, photo];
     });
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheet.title}!A2:N${1 + rowsToAdd.length}`,
+      range: `${sheet.title}!A2:O${1 + rowsToAdd.length}`,
       valueInputOption: 'RAW',
       resource: { values }
     });
 
     await sheetsApi.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheet.title}!A2:N${1 + rowsToAdd.length}`,
+      range: `${sheet.title}!A2:O${1 + rowsToAdd.length}`,
       valueInputOption: 'USER_ENTERED',
       resource: { values },
     });
@@ -4322,6 +4339,58 @@ export async function saveAnimalPhoto(animalType, animalName, photoBase64) {
   } catch (error) {
     console.error('Error in saveAnimalPhoto:', error);
     throw error;
+  }
+}
+
+/*--------------------------------------------------
+  Save / get photo for a specific treatment row (column O)
+---------------------------------------------------*/
+export async function saveTreatmentPhoto(animalType, animalName, rowIndex, photoBase64) {
+  try {
+    await ensureConfigLoaded();
+    console.log(`>> saveTreatmentPhoto for ${animalName} (${animalType}), row ${rowIndex}`);
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
+    if (!spreadsheetId) throw new Error('No spreadsheet found for animal');
+
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];
+    const auth = getSheetsAuth();
+    const sheetsApi = google.sheets({ version: 'v4', auth });
+
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheet.title}!O${rowIndex}`,
+      valueInputOption: 'RAW',
+      resource: { values: [[photoBase64]] }
+    });
+
+    invalidateCache(spreadsheetId);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in saveTreatmentPhoto:', error);
+    throw error;
+  }
+}
+
+export async function getTreatmentPhotoFromRow(animalType, animalName, rowIndex) {
+  try {
+    await ensureConfigLoaded();
+    const spreadsheetId = await findSpreadsheetInFolder(animalType, animalName);
+    if (!spreadsheetId) return null;
+
+    const doc = await getDoc(spreadsheetId);
+    const sheet = doc.sheetsByIndex[0];
+    const auth = getSheetsAuth();
+    const sheetsApi = google.sheets({ version: 'v4', auth });
+
+    const resp = await sheetsApi.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheet.title}!O${rowIndex}`,
+    });
+    return resp.data.values?.[0]?.[0] || null;
+  } catch (error) {
+    console.error('Error in getTreatmentPhotoFromRow:', error);
+    return null;
   }
 }
 

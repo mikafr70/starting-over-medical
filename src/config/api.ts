@@ -18,4 +18,6 @@ export const API_ENDPOINTS = {
     });
     return `/api/treatments/bulk?${params.toString()}`;
   },
+  treatmentPhoto: (animalType: string, animalName: string, rowIndex: number) =>
+    `/api/treatments/photo?animalType=${encodeURIComponent(animalType)}&animalName=${encodeURIComponent(animalName)}&rowIndex=${rowIndex}`,
 };

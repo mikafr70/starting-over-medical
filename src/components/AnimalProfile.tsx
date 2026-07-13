@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { ArrowRight, Calendar, Pill, Loader2, Upload, X, Pencil } from "lucide-react";
+import { ArrowRight, Calendar, Pill, Loader2, Upload, X, Pencil, Search, Camera, ImageIcon } from "lucide-react";
 import { API_ENDPOINTS } from "../config/api";
 import { toast } from "sonner";
 import React from "react";
@@ -103,6 +103,63 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
   const [treatments, setTreatments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [treatmentFilter, setTreatmentFilter] = useState<'today' | 'history' | 'future'>('today');
+  const [treatmentSearch, setTreatmentSearch] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [photoModal, setPhotoModal] = useState<{ open: boolean; photo: string | null; rowIndex: number | null; date: string; loading: boolean; uploading: boolean }>({
+    open: false, photo: null, rowIndex: null, date: '', loading: false, uploading: false
+  });
+
+  const openPhotoModal = async (treatment: any) => {
+    const rowIndex = treatment.rowIndex ?? null;
+    const date: string = treatment.date || '';
+    // If photo already in treatment data use it; otherwise fetch lazily
+    if (treatment.photo) {
+      setPhotoModal({ open: true, photo: treatment.photo, rowIndex, date, loading: false, uploading: false });
+      return;
+    }
+    if (!rowIndex) {
+      setPhotoModal({ open: true, photo: null, rowIndex, date, loading: false, uploading: false });
+      return;
+    }
+    setPhotoModal({ open: true, photo: null, rowIndex, date, loading: true, uploading: false });
+    try {
+      const res = await fetch(API_ENDPOINTS.treatmentPhoto(animalType, animalName, rowIndex));
+      const data = await res.json();
+      setPhotoModal(prev => ({ ...prev, photo: data.photo || null, loading: false }));
+    } catch {
+      setPhotoModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handlePhotoUploadInModal = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !photoModal.rowIndex) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 350;
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const base64 = canvas.toDataURL('image/jpeg', 0.7);
+        setPhotoModal(prev => ({ ...prev, photo: base64, uploading: true }));
+        fetch('/api/treatments/photo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ animalType, animalName, rowIndex: photoModal.rowIndex, photo: base64 })
+        })
+          .then(r => r.json())
+          .then(() => { setPhotoModal(prev => ({ ...prev, uploading: false })); toast.success('תמונה נשמרה'); })
+          .catch(() => { setPhotoModal(prev => ({ ...prev, uploading: false })); toast.error('שמירת תמונה נכשלה'); });
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   console.log('$$$$$$$$$AnimalProfile Render:', { animalType, animalName });
   
@@ -370,6 +427,7 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
 
 
   return (
+    <>
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ backgroundColor: '#F7F3ED' }}>
       {/* Processing Overlay */}
       {isProcessing && (
@@ -592,8 +650,8 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                     שמור טיפולים
                   </Button>
                 </div>
-                {/* Filter tabs */}
-                <div className="flex gap-2 mt-3" dir="rtl">
+                {/* Filter tabs + search toggle */}
+                <div className="flex items-center gap-2 mt-3" dir="rtl">
                   {([
                     { key: 'today', label: 'היום' },
                     { key: 'history', label: 'היסטוריה' },
@@ -612,7 +670,42 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                       {tab.label}
                     </button>
                   ))}
+                  <button
+                    onClick={() => { setSearchOpen(o => !o); if (searchOpen) setTreatmentSearch(''); }}
+                    className={`mr-auto p-1.5 rounded-full transition-colors ${searchOpen ? 'text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                    style={searchOpen ? { backgroundColor: '#6B9080' } : {}}
+                    title="חיפוש"
+                  >
+                    <Search className="w-4 h-4" />
+                  </button>
                 </div>
+
+                {/* Expandable search bar */}
+                {searchOpen && (
+                  <div
+                    className="flex items-center gap-3 mt-3 px-4 py-3 border-2 rounded-xl"
+                    style={{ borderColor: treatmentSearch ? '#6B9080' : '#E5E7EB' }}
+                  >
+                    <Search className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="חיפוש בטיפולים..."
+                      value={treatmentSearch}
+                      onChange={e => setTreatmentSearch(e.target.value)}
+                      autoFocus
+                      dir="rtl"
+                      className="flex-1 text-base bg-transparent focus:outline-none"
+                    />
+                    {treatmentSearch && (
+                      <button
+                        onClick={() => setTreatmentSearch('')}
+                        className="text-gray-400 hover:text-gray-600 flex-shrink-0"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </CardHeader>
               <CardContent>
                 {(() => {
@@ -626,13 +719,23 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
 
+                  const searchLower = treatmentSearch.trim().toLowerCase();
                   const filteredTreatments = editTreatments.filter(t => {
                     const d = parseDMY(t.date);
                     if (!d) return false;
                     d.setHours(0, 0, 0, 0);
-                    if (treatmentFilter === 'today') return d.getTime() === today.getTime();
-                    if (treatmentFilter === 'history') return d.getTime() < today.getTime();
-                    return d.getTime() > today.getTime();
+                    let passesDate = false;
+                    if (treatmentFilter === 'today') passesDate = d.getTime() === today.getTime();
+                    else if (treatmentFilter === 'history') passesDate = d.getTime() < today.getTime();
+                    else passesDate = d.getTime() > today.getTime();
+                    if (!passesDate) return false;
+                    if (!searchLower) return true;
+                    return (
+                      (t.case || '').toLowerCase().includes(searchLower) ||
+                      (t.treatment || '').toLowerCase().includes(searchLower) ||
+                      (t.notes || '').toLowerCase().includes(searchLower) ||
+                      (t.date || '').includes(treatmentSearch.trim())
+                    );
                   }).sort((a, b) => {
                     const da = parseDMY(a.date)!;
                     const db = parseDMY(b.date)!;
@@ -650,8 +753,18 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
 
                   return (
                 <div className="space-y-3">
-                  {filteredTreatments.length === 0 ? (
-                    <div className="text-center text-gray-500">{emptyMessages[treatmentFilter]}</div>
+                  {/* Result count shown when search is active */}
+                  {searchLower && (
+                    <div className="text-sm text-right font-medium" style={{ color: '#6B9080' }}>
+                      {filteredTreatments.length === 0
+                        ? `לא נמצאו תוצאות עבור "${treatmentSearch}"`
+                        : `נמצאו ${filteredTreatments.length} תוצאות עבור "${treatmentSearch}"`}
+                    </div>
+                  )}
+                  {filteredTreatments.length === 0 && !searchLower ? (
+                    <div className="text-center text-gray-500">
+                      {emptyMessages[treatmentFilter]}
+                    </div>
                   ) : (
                     filteredTreatments.map((treatment) => {
                       // Find original index in editTreatments for onChange handlers
@@ -728,7 +841,19 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                             }}
                           />
                         </div>
-                        <div className="flex gap-2 mr-auto">
+                        <div className="flex gap-2 mr-auto items-center">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => openPhotoModal(treatment)}
+                          >
+                            {treatment.photo ? (
+                              <><ImageIcon className="w-4 h-4" />צפה בתמונה</>
+                            ) : (
+                              <><Camera className="w-4 h-4" />הוסף תמונה</>
+                            )}
+                          </Button>
                           <Button
                             variant="destructive"
                             onClick={() => {
@@ -751,6 +876,58 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
         </div>
       </div>
     </div>
+
+      {/* Photo popup — small floating card, not a full-screen overlay */}
+      {photoModal.open && (
+        <div className="fixed bottom-6 left-6 z-50 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+            <h3 className="font-semibold text-sm text-right">
+              תמונת טיפול{photoModal.date ? ` — ${photoModal.date}` : ''}
+            </h3>
+            <button
+              onClick={() => setPhotoModal(prev => ({ ...prev, open: false }))}
+              className="p-1 rounded-full hover:bg-gray-200 transition-colors"
+            >
+              <X className="w-4 h-4 text-gray-600" />
+            </button>
+          </div>
+
+          {/* Photo */}
+          <div className="p-3">
+            {photoModal.loading ? (
+              <div className="flex justify-center py-10"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
+            ) : photoModal.photo ? (
+              <img src={photoModal.photo} alt="תמונת טיפול" className="w-full rounded-lg object-contain max-h-48" />
+            ) : (
+              <p className="text-center text-gray-400 text-sm py-8">אין תמונה לטיפול זה</p>
+            )}
+          </div>
+
+          {/* Upload / replace */}
+          <div className="px-3 pb-2">
+            <label className="flex items-center justify-center gap-2 cursor-pointer px-3 py-2 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:bg-gray-50 transition-colors">
+              {photoModal.uploading ? (
+                <><Loader2 className="w-3 h-3 animate-spin" /><span>שומר...</span></>
+              ) : (
+                <><Upload className="w-3 h-3" /><span>{photoModal.photo ? 'החלף תמונה' : 'העלה תמונה'}</span></>
+              )}
+              <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUploadInModal} disabled={photoModal.uploading} />
+            </label>
+          </div>
+
+          {/* Back button */}
+          <div className="border-t px-3 py-2">
+            <button
+              onClick={() => setPhotoModal(prev => ({ ...prev, open: false }))}
+              className="w-full text-xs text-center text-gray-500 hover:text-gray-800 transition-colors py-1"
+            >
+              ← חזור לרשימת הטיפולים
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
