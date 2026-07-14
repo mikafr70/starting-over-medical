@@ -1020,11 +1020,25 @@ export async function addTreatmentAtTop(spreadsheetId, rowData = {}, isGeneralCa
     const auth = getSheetsAuth();
     const sheetsApi = google.sheets({ version: 'v4', auth });
 
-    // Ensure column O has 'תמונה' header — write directly to O1 so the Sheets
-    // API extends the sheet dimensions automatically (setHeaderRow throws if the
-    // sheet doesn't already have enough columns).
+    // Ensure column O has 'תמונה' header.
+    // values.update does NOT auto-extend columns, so first expand the sheet to
+    // at least 15 columns via appendDimension, then write the header.
     await sheet.loadHeaderRow();
     if (!sheet.headerValues.includes('תמונה')) {
+      if (sheet.columnCount < 15) {
+        await sheetsApi.spreadsheets.batchUpdate({
+          spreadsheetId,
+          resource: {
+            requests: [{
+              appendDimension: {
+                sheetId: sheetId,
+                dimension: 'COLUMNS',
+                length: 15 - sheet.columnCount
+              }
+            }]
+          }
+        });
+      }
       await sheetsApi.spreadsheets.values.update({
         spreadsheetId,
         range: `${sheet.title}!O1`,
