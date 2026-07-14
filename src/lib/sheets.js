@@ -521,9 +521,8 @@ async function findSpreadsheetInFolder(animalType, animalName) {
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
       // Clean the file name (remove parentheses and trailing numeric IDs)
       const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d{15}$/, '').trim();
-      //console.log(`Comparing: fileNameClean:"${fileNameClean}" with nameOnly:"${nameOnly}" | Full: "${file.name}"`);
-      // Match if the cleaned file name starts with the target name (handles extra suffixes/IDs)
-      const isMatch = fileNameClean === nameOnly || fileNameClean.startsWith(nameOnly);
+      //console.log(`Comparing: fileNameClean:"${fileNameClean}" with normalizedAnimalName:"${normalizedAnimalName}" | Full: "${file.name}"`);
+      const isMatch = fileNameClean === normalizedAnimalName;
       if (isMatch) {
         console.log(`  ✓ MATCH FOUND: "${file.name}"`);
       }
@@ -638,8 +637,7 @@ async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
         // Clean up the animal name (remove parentheses and numbers if present)
         const cleanAnimalName = stripParentheses(animal).replace(/\s+\d{15}$/, '').trim();
         
-        // Consider a match when the cleaned file name equals or starts with the cleaned animal name
-        let isMatch = cleanFileName === cleanAnimalName || cleanFileName.startsWith(cleanAnimalName);
+        let isMatch = cleanFileName === cleanAnimalName;
         
         console.log(`  Comparing file: "${cleanFileName}" with animal: "${cleanAnimalName}" => ${isMatch ? '✓ MATCH' : '✗ no match'}`);
         
@@ -673,11 +671,10 @@ async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
 export async function findSheetIdByName(folderId, animalName){
   const drive = getDriveClient();
   try {
-    // Extract just the name part from animalName (e.g., "קשיו" from "קשיו 939000007563363")
-    const nameOnly = stripParentheses(animalName).split(' ')[0];
-    
-    console.log(`[findSheetIdByName] Searching for: "${animalName}", extracted: "${nameOnly}"`);
-    
+    const normalizedAnimalName = stripParentheses(animalName).replace(/\s+\d{15}$/, '').trim();
+
+    console.log(`[findSheetIdByName] Searching for: "${animalName}", normalized: "${normalizedAnimalName}"`);
+
     // Fetch all files with pagination
     let allFiles = [];
     let pageToken = null;
@@ -704,8 +701,7 @@ export async function findSheetIdByName(folderId, animalName){
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
       // Extract the name part (first word after removing prefix)
       const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d{15}$/, '').trim();
-      // Match if the cleaned file name equals or starts with the target name
-      const isMatch = fileNameClean === nameOnly || fileNameClean.startsWith(nameOnly);
+      const isMatch = fileNameClean === normalizedAnimalName;
       if (isMatch) {
         console.log(`  [findSheetIdByName] ✓ MATCH FOUND: "${file.name}"`);
       }
