@@ -81,7 +81,6 @@ import { log } from 'console';
 import { ANIMAL_TREATMENT_SHEETS, getAnimalTreatments, addTreatmentAtTop, getAnimalsFromSheet, getAnimals, getProtocolsFromSheet, readRecentSheetsAndRows, ensureConfigLoaded, getAllAnimalTypes } from '@/src/lib/sheets'; // ...existing code...
 
 
-const protocolsSheetId = process.env.PROTOCOLS_SHEET_ID;
 const CORS_HEADERS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -184,7 +183,7 @@ export async function GET(request) {
       // Prefer live sheet data when a sheetId is configured
       if (typeInfo.sheetId) {
         const liveAnimals = await getAnimalsFromSheet(typeInfo.sheetId);
-        const liveProtocols = await getProtocolsFromSheet(protocolsSheetId, animalType);
+        const liveProtocols = await getProtocolsFromSheet(process.env.PROTOCOLS_SHEET_ID, animalType);
 
         // Map to lightweight shape for frontend
         const animals = liveAnimals.map(a => ({
