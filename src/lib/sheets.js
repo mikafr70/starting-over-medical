@@ -479,8 +479,8 @@ async function findSpreadsheetInFolder(animalType, animalName) {
   const animalTypeKey = await getAnimalTypeKey(animalType);
   const folderId = ANIMAL_TREATMENT_SHEETS()[animalTypeKey].folderId;
 
-  // Normalize animal name for cache key (strip parentheses and trailing 15-digit IDs)
-  const normalizedAnimalName = stripParentheses(animalName).replace(/\s+\d{15}$/, '').trim();
+  // Normalize animal name for cache key (strip parentheses and trailing chip IDs of any length)
+  const normalizedAnimalName = stripParentheses(animalName).replace(/\s+\d+$/, '').trim();
   // Check cache first
   const cacheKey = `${animalType}-${normalizedAnimalName}`;
   const cached = getFromCache(folderId, 'spreadsheet-lookup', cacheKey);
@@ -519,8 +519,8 @@ async function findSpreadsheetInFolder(animalType, animalName) {
       const nameWithoutExtension = file.name.replace(/\..*$/, ''); // Remove extension
       // Remove "עותק של " prefix if present
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
-      // Clean the file name (remove parentheses and trailing numeric IDs)
-      const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d{15}$/, '').trim();
+      // Clean the file name (remove parentheses and trailing chip IDs of any length)
+      const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d+$/, '').trim();
       //console.log(`Comparing: fileNameClean:"${fileNameClean}" with normalizedAnimalName:"${normalizedAnimalName}" | Full: "${file.name}"`);
       const isMatch = fileNameClean === normalizedAnimalName;
       if (isMatch) {

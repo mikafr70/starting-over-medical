@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Login } from "./components/Login";
 import { Dashboard } from "./components/Dashboard";
 import DailySchedule from "./components/DailySchedule";
-import { AnimalProfile } from "./components/AnimalProfile";
+import { AnimalProfile, clearProfileCache } from "./components/AnimalProfile";
 import { AddTreatment } from "./components/AddTreatment";
 import { Navbar } from "./components/Navbar";
 import { Toaster } from "./components/ui/sonner";
@@ -75,9 +75,11 @@ export default function App() {
     setCurrentScreen("addTreatmentFromSchedule");
   };
 
-  const handleAddTreatmentFromProfile = () => {
+  const handleAddTreatmentFromProfile = (animalType: string, animalName: string) => {
+    setSelectedAnimalType(animalType);
+    setSelectedAnimalName(animalName);
     setPreviousScreen("profile");
-    setCurrentScreen("addTreatmentFromSchedule");
+    setCurrentScreen("addTreatment");
   };
 
   const handleAddTreatmentFromPersonalTreatments = () => {
@@ -91,6 +93,7 @@ export default function App() {
   };
 
   const handleBackFromAddTreatment = () => {
+    clearProfileCache(selectedAnimalType, selectedAnimalName);
     setCurrentScreen("profile");
   };
 
@@ -167,7 +170,7 @@ export default function App() {
 
       {currentScreen === "addTreatment" && (
         <AddTreatment
-          
+          animalType={selectedAnimalType}
           animalName={selectedAnimalName}
           onBack={handleBackFromAddTreatment}
         />

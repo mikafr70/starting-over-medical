@@ -11,6 +11,12 @@ import React from "react";
 const profileCache = new Map<string, any>();
 const fetchingProfiles = new Map<string, Promise<any>>();
 
+export function clearProfileCache(animalType: string, animalName: string) {
+  const fetchKey = `${animalType}||${animalName}`;
+  profileCache.delete(fetchKey);
+  fetchingProfiles.delete(fetchKey);
+}
+
 export function TreatmentCheckboxes({
   treatments,
   onChange
@@ -84,10 +90,10 @@ interface AnimalProfileProps {
   animalType: string;
   animalName: string;
   onBack: () => void;
-  onAddTreatment?: (animalName: string) => void;
+  onAddTreatment?: (animalType: string, animalName: string) => void;
 }
 
-export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileProps) {
+export function AnimalProfile({ animalType, animalName, onBack, onAddTreatment }: AnimalProfileProps) {
   // Editable animal data state
   const [editAnimal, setEditAnimal] = useState<any | null>(null);
   const [editTreatments, setEditTreatments] = useState<any[]>([]);
@@ -610,10 +616,18 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                     <Pill className="w-5 h-5" style={{ color: '#A67C52' }} />
                     <span className="font-bold text-lg">רשומות טיפול</span>
                   </div>
+                  <div className="flex items-center gap-2 ml-auto">
+                    {onAddTreatment && (
+                      <Button
+                        variant="outline"
+                        onClick={() => onAddTreatment(animalType, animal.name || animalName)}
+                      >
+                        + הוסף טיפול
+                      </Button>
+                    )}
                   <Button
                     variant="default"
                     disabled={savingTreatments}
-                    className="ml-auto"
                     onClick={async () => {
                       setSavingTreatments(true);
                       setIsProcessing(true);
@@ -649,6 +663,7 @@ export function AnimalProfile({ animalType, animalName, onBack }: AnimalProfileP
                   >
                     שמור טיפולים
                   </Button>
+                  </div>
                 </div>
                 {/* Filter tabs + search toggle */}
                 <div className="flex items-center gap-2 mt-3" dir="rtl">

@@ -59,15 +59,14 @@ interface AddTreatmentProps {
 
 
 
-export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
+export function AddTreatment({ animalName, animalType: initialAnimalType, onBack }: AddTreatmentProps) {
   const [animals, setAnimals] = useState<Animal[]>([]);
   const [animalTypes, setAnimalTypes] = useState<AnimalType[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // AF const [treatmentTypes, setTreatmentTypes] = useState<string[]>([]);
   const [treatmentTypes, setTreatmentTypes] = useState<string[]>([]);
-  const [treatmentType, setTreatmentType] = useState<string>('');   // ← selected value
+  const [treatmentType, setTreatmentType] = useState<string>('');
   const [mappedTreatments, setMappedTreatments] = useState<Treatment[]>([]);
 
 
@@ -93,7 +92,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
 
     fetchTypes();
   }, []);
-  const [selectedAnimalType, setSelectedAnimalType] = useState("");
+  const [selectedAnimalType, setSelectedAnimalType] = useState(initialAnimalType || "");
   const [selectedAnimal, setSelectedAnimal] = useState(animalName?.toString() || "");
   const [searchQuery, setSearchQuery] = useState("");
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
@@ -155,46 +154,39 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
   // Mapped treatments filtered by selected treatment type
   const visibleMappedTreatments = mappedTreatments.filter((m) => m.case === treatmentType);
 
-  // When type changes, fetch animals for that type
-  const handleTypeChange = async (value: string) => {
+  // When type changes, fetch animals for that type.
+  // preserveAnimal: if provided, keep this animal selected instead of resetting to empty.
+  const handleTypeChange = async (value: string, preserveAnimal?: string) => {
     setSelectedAnimalType(value);
-    setSelectedAnimal("");
+    setSelectedAnimal(preserveAnimal ?? "");
     setSearchQuery("");
     setLoading(true);
     try {
-      console.log('Fetching animals for type:', value);
       const res = await fetch(API_ENDPOINTS.treatmentsByType(value));
-      console.log('Response status:', res.status);
       if (!res.ok) throw new Error(`Failed to load animals for type ${value}`);
       const data = await res.json();
-      // data expected: [{ id, displayName }]
-      // Map the backend data to our Animal interface
 
       const mappedAnimals: Animal[] = data.animals.map((it: any) => ({
-      id: it.id ?? '',
-      id2: it.id2 ?? '',
-      name: it.displayName ?? it.name ?? '',
-      animalType: value,
-      id_number: it.id_number ?? '',
-      age: it.age ?? '',
-      sex: it.sex ?? it.gender ?? '',
-      description: it.description ?? '',
-      arrival_date: it.arrival_date ?? '',
-      birth_date: it.birth_date ?? '',
-      location: it.location ?? '',
-      status: it.status ?? '',
+        id: it.id ?? '',
+        id2: it.id2 ?? '',
+        name: it.displayName ?? it.name ?? '',
+        animalType: value,
+        id_number: it.id_number ?? '',
+        age: it.age ?? '',
+        sex: it.sex ?? it.gender ?? '',
+        description: it.description ?? '',
+        arrival_date: it.arrival_date ?? '',
+        birth_date: it.birth_date ?? '',
+        location: it.location ?? '',
+        status: it.status ?? '',
       }));
-      console.log('Mapped animals for UI:', mappedAnimals);
       setAnimals(mappedAnimals);
-   
-      // treatment types: unique list of 'case' strings
+
       const cases = Array.from(new Set(
-        (data.protocols ?? [])
-          .map((it: any) => it?.case)
-          .filter(Boolean)
+        (data.protocols ?? []).map((it: any) => it?.case).filter(Boolean)
       )) as string[];
       setTreatmentTypes(cases);
-      setTreatmentType(''); // reset current selection
+      setTreatmentType('');
 
       const mappedTreatmentsLocal: Treatment[] = (data.protocols || []).map((it: any, idx: number) => ({
         id: `${value}-${String(it.case)}-${idx}`,
@@ -209,19 +201,7 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
         noon: it.noon ?? '',
         evening: it.evening ?? ''
       }));
-
-
-
-
-
-
-
-      // Save mapped treatments into component state for the editable grid
       setMappedTreatments(mappedTreatmentsLocal);
-
-
-
-  // Open the popover to show the loaded animals immediately (UI handles this automatically)
     } catch (e) {
       console.error('Error fetching animals by type:', e);
       toast.error('Failed to load animals for selected type');
@@ -230,6 +210,13 @@ export function AddTreatment({ animalName, onBack }: AddTreatmentProps) {
       setLoading(false);
     }
   };
+
+  // Auto-load animals list when navigating here from an animal profile
+  useEffect(() => {
+    if (initialAnimalType) {
+      handleTypeChange(initialAnimalType, animalName || "");
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();

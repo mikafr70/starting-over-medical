@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Sunrise, Sun, Moon, CheckCircle2, Plus, Loader2 } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { toast } from "sonner";
 
@@ -73,28 +73,8 @@ const formatDate = (date: Date): string => {
   return `${day}.${month}.${year}`;
 };
 
-// Generate schedule days dynamically (2 days before today, today, 2 days after)
-const generateScheduleDays = () => {
-  const today = new Date();
-  const days = [];
-  
-  for (let i = -2; i <= 2; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    days.push({
-      date: formatDate(date),
-      day: getHebrewDayName(date),
-      isToday: i === 0,
-      dateObj: date
-    });
-  }
-  
-  return days;
-};
 
 export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyScheduleProps) {
-  const [scheduleDays] = useState(generateScheduleDays());
-  const [selectedDayIndex, setSelectedDayIndex] = useState(2); // Index 2 is today (middle of the array)
   const [completedTreatments, setCompletedTreatments] = useState<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{ 
     open: boolean; 
@@ -153,7 +133,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   // Ref to prevent duplicate fetches
   const fetchInProgressRef = useRef(false);
 
-  const selectedDay = scheduleDays[selectedDayIndex];
+  const todayObj = new Date();
+  const selectedDay = { dateObj: todayObj, day: getHebrewDayName(todayObj), date: formatDate(todayObj), isToday: true };
 
   // Fetch treatments from API with streaming support
   useEffect(() => {
@@ -270,7 +251,11 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                 const res = await fetch(`/api/treatments?profile=1&animalType=${encodeURIComponent(animalTypeKey)}&animalName=${encodeURIComponent(animalName)}`);
                 if (!res.ok) return null;
                 const data = await res.json();
-                const hasFuture = (data.treatments || []).some((t: any) => parseDMY(t.date) > todayMs);
+                // Only consider morning/noon/evening slot treatments — ignore personal-only rows
+                const morningNoonEveningTreatments = (data.treatments || []).filter(
+                  (t: any) => t.morning !== '' || t.noon !== '' || t.evening !== ''
+                );
+                const hasFuture = morningNoonEveningTreatments.some((t: any) => parseDMY(t.date) > todayMs);
                 return hasFuture ? null : animalName;
               })
             );
@@ -412,18 +397,6 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   const overviewTreatments = treatments.filter(t => 
     t.treatmentDate === selectedDateStr && t.timeSlot !== 'general'
   );
-
-  const nextDay = () => {
-    if (selectedDayIndex < scheduleDays.length - 1) {
-      setSelectedDayIndex(selectedDayIndex + 1);
-    }
-  };
-
-  const prevDay = () => {
-    if (selectedDayIndex > 0) {
-      setSelectedDayIndex(selectedDayIndex - 1);
-    }
-  };
 
   const handleCheckboxClick = (e: React.MouseEvent, treatment: Treatment) => {
     e.stopPropagation();
@@ -573,7 +546,6 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                 <span className="text-sm text-muted-foreground">({treatment.animalType})</span>
               </div>
               <p className="text-sm text-right font-medium">{treatment.medicalCase}</p>
-              <p className="text-sm text-muted-foreground text-right">מטפל/ת: {treatment.caregiver}</p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -696,36 +668,14 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         <div className="xl:col-span-8 space-y-6">
               <Card className="mb-6">
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={prevDay}
-                      disabled={selectedDayIndex === 0}
-                    >
-                      <ChevronRight className="w-5 h-5" />
-                    </Button>
-
-                    <div className="text-center">
-                      <CardTitle className="flex items-center justify-center gap-2">
-                        <CalendarIcon className="w-5 h-5" />
-                        {selectedDay.day}, {selectedDay.date}
-                      </CardTitle>
-                      {selectedDay.isToday && (
-                        <Badge className="mt-2" style={{ backgroundColor: '#CFE4D3', color: '#333333' }}>
-                          היום
-                        </Badge>
-                      )}
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={nextDay}
-                      disabled={selectedDayIndex === scheduleDays.length - 1}
-                    >
-                      <ChevronLeft className="w-5 h-5" />
-                    </Button>
+                  <div className="text-center">
+                    <CardTitle className="flex items-center justify-center gap-2">
+                      <CalendarIcon className="w-5 h-5" />
+                      {selectedDay.day}, {selectedDay.date}
+                    </CardTitle>
+                    <Badge className="mt-2" style={{ backgroundColor: '#CFE4D3', color: '#333333' }}>
+                      היום
+                    </Badge>
                   </div>
                 </CardHeader>
               </Card>

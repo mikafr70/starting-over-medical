@@ -134,8 +134,7 @@ export async function GET(request) {
 
       console.log('Animal found: ', targetAnimal.name || targetAnimal.displayName);
       // Get all treatments for this animal from its individual sheet
-      // Extract just the name part (before the ID number)
-      const animalNameOnly = (targetAnimal.name || '').split(' ')[0];
+      const animalNameOnly = targetAnimal.name || '';
       console.log('Using animal name for search:', animalNameOnly);
       const allTreatments = await getAnimalTreatments(animalType, animalNameOnly);
 
