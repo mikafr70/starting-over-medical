@@ -603,11 +603,12 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ backgroundColor: '#F7F3ED' }}>
-      {/* Follow-up alert — fixed to the right side of the viewport, visible while checking or when results exist */}
+
+      {/* Follow-up alert — fixed to the LEFT, opposite side from the add-treatment button (right-8) */}
       {(checkingFollowUp || needsFollowUp.length > 0) && (
         <div
-          className="fixed z-50 rounded-xl shadow-lg px-6 py-5 text-black text-sm font-medium left-4 right-4 sm:left-auto sm:right-4 sm:w-72"
-          style={{ top: '5rem', backgroundColor: '#FEF9C3' }}
+          className="rounded-xl shadow-lg px-6 py-5 text-black text-sm font-medium"
+          style={{ position: 'fixed', top: '5rem', left: '1rem', right: 'auto', width: '16rem', zIndex: 50, backgroundColor: '#FEF9C3' }}
         >
           {checkingFollowUp ? (
             <div className="flex items-center gap-2">
@@ -636,8 +637,6 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       )}
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
-          <h1 className="mb-2 text-right text-[24px]">לוח זמנים יומי</h1>
-          <p className="text-muted-foreground text-right">טיפולים מתוכננים לפי יום ושעה</p>
         </div>
 
         {/* Loading State - Show spinner but don't hide content */}
@@ -679,6 +678,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                   </div>
                 </CardHeader>
               </Card>
+
 
               {treatments.filter(t => t.timeSlot !== 'general').length === 0 ? (
                 <Card>
