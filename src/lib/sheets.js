@@ -965,9 +965,9 @@ export async function getProtocolsFromSheet(spreadsheetId, animalType) {
       medication: row._rawData?.[headerMap['תרופה']] || '',
       days: row._rawData?.[headerMap['ימים']] || '',
       frequency: row._rawData?.[headerMap['תדירות']] || '',
-      morning: row._rawData?.[headerMap['בוקר']] || '',
-      noon: row._rawData?.[headerMap['צהריים']] || '',
-      evening: row._rawData?.[headerMap['ערב']] || ''
+      morning: row._rawData?.[headerMap['בוקר']] ?? '',
+      noon: row._rawData?.[headerMap['צהריים']] ?? '',
+      evening: row._rawData?.[headerMap['ערב']] ?? ''
     }));
 
     let searchType = animalType;
@@ -2792,6 +2792,15 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
     const endA = colToA1(endCol);
     let row2HadNoDate = false;
 
+    // Detect checkbox columns from the data we're already reading — no extra API call.
+    // If any scanned row has a boolean value (TRUE/FALSE) in a time-slot column, that
+    // column has BOOLEAN data validation, so empty cells ('') should be treated as
+    // uncompleted checkboxes (FALSE) rather than absent treatments.
+    const checkboxCols = { morning: false, noon: false, evening: false };
+    // Raw rows for dates we care about — collected during the scan, post-processed after
+    // we've seen enough rows to know which columns are checkbox columns.
+    const rawMatchingRows = [];
+
     // Single pass through the sheet to find all dates
     const minDate = Math.min(...Object.keys(datesToFind).map(Number));
 
@@ -2814,9 +2823,15 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
       // throttle reads to avoid Google Sheets rate limits
       await sleep(SHEET_READ_DELAY_MS);
 
-      console.log(`   Got ${resp.data.values ? resp.data.values.length : 0} rows`);
+      const rowsInChunk = resp.data.values ? resp.data.values.length : 0;
+      console.log(`   Got ${rowsInChunk} rows`);
 
-      for (let i = 0; i < (resp.data.values ? resp.data.values.length : 0); i++) {
+      if (rowsInChunk === 0) {
+        console.log(`   ⏹️ Empty chunk — no more data in sheet, stopping scan`);
+        break outerLoop;
+      }
+
+      for (let i = 0; i < rowsInChunk; i++) {
         const rowValues = resp.data.values[i];
         if (!rowValues) continue;
 
@@ -2847,84 +2862,106 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
           continue;
         }
         
+        // Accumulate checkbox column knowledge from EVERY row, including the row
+        // that triggers the early-stop break below. The first row older than today
+        // often has an explicit FALSE for evening that proves the column is a checkbox
+        // column — so detection must happen before the break, not after.
+        const isBoolValCheck = v => v === true || v === 'TRUE' || v === false || v === 'FALSE';
+        if (!checkboxCols.morning && isBoolValCheck(rowValues[morningCol])) checkboxCols.morning = true;
+        if (!checkboxCols.noon    && isBoolValCheck(rowValues[noonCol]))    checkboxCols.noon    = true;
+        if (!checkboxCols.evening && isBoolValCheck(rowValues[eveningCol])) checkboxCols.evening = true;
+
         if (parsedRowDate < minDate) {
-          console.log(`   ⏭️ Date ${parsedRowDate} < minDate ${minDate}, skipping row (rows may not be in strict date order)`);
-          continue;
+          console.log(`   ⏹️ Date ${parsedRowDate} < minDate ${minDate}, stopping scan`);
+          break outerLoop;
         }
-        
+
         if (datesToFind[parsedRowDate]) {
           const dateInfo = datesToFind[parsedRowDate];
           console.log(`✓ Found treatment for ${dateInfo.dateStr} in row date: ${stringDate}`);
           console.log(`   Row values: morning[${morningCol}]=${rowValues[morningCol]}, noon[${noonCol}]=${rowValues[noonCol]}, evening[${eveningCol}]=${rowValues[eveningCol]}, general[${generalTreatmentCol}]=${rowValues[generalTreatmentCol]}, personal[${personalTreatmentCol}]=${rowValues[personalTreatmentCol]}`);
           dateInfo.hasTreatment = true;
-          
-          const morningValue = rowValues[morningCol];
-          const noonValue = rowValues[noonCol];
-          const eveningValue = rowValues[eveningCol];
-          const generalTreatmentValue = rowValues[generalTreatmentCol];
-          const personalTreatmentValue = rowValues[personalTreatmentCol];
-          const medicalCase = rowValues[caseCol] || '';
-          const treatment = rowValues[treatmentCol] || '';
-          const dosage = rowValues[dosageCol] || '';
-          
-          const isGeneralTreatmentChecked = (generalTreatmentValue === true || generalTreatmentValue === 'TRUE');
-          
-          if (isGeneralTreatmentChecked && excludeCheckedGeneralTreatments) {
-            console.log(`   ⏭️ Skipping row - general treatment is checked and excludeCheckedGeneralTreatments=true`);
-            continue;
-          }
-          
-          const hasPersonalOrGeneralCheckbox = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE' || 
-            personalTreatmentValue === false || personalTreatmentValue === 'FALSE' ||
-            generalTreatmentValue === true || generalTreatmentValue === 'TRUE' ||
-            generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
-            
-          console.log(`   🔍 Treatment type: hasPersonalOrGeneralCheckbox=${hasPersonalOrGeneralCheckbox}`);
-            
-          if (hasPersonalOrGeneralCheckbox) {
-            const isPersonalTreatmentChecked = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE');
-            const isPersonalTreatmentUnchecked = (personalTreatmentValue === false || personalTreatmentValue === 'FALSE');
-            const isGeneralUnchecked = (generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
-            
-            if (isPersonalTreatmentChecked) {
-              console.log(`   ➕ Adding PERSONAL treatment (checked): ${treatment || medicalCase}`);
-              dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: true, isPersonal: true });
-            } else if (isPersonalTreatmentUnchecked) {
-              console.log(`   ➕ Adding PERSONAL treatment (unchecked): ${treatment || medicalCase}`);
-              dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: false, isPersonal: true });
-            } else if (isGeneralTreatmentChecked) {
-              console.log(`   ➕ Adding GENERAL treatment (checked): ${treatment || medicalCase}`);
-              dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: true, isPersonal: false });
-            } else if (isGeneralUnchecked) {
-              console.log(`   ➕ Adding GENERAL treatment (unchecked): ${treatment || medicalCase}`);
-              dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: false, isPersonal: false });
-            }
-          } else {
-            const hasTimeSlots = (morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') ||
-                                (noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') ||
-                                (eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE');
-            
-            if (hasTimeSlots) {
-              if(morningValue === false || morningValue === 'FALSE' || morningValue === true || morningValue === 'TRUE') {
-                console.log(`   ➕ Adding MORNING time slot (completed: ${morningValue === true || morningValue === 'TRUE'}): ${treatment || medicalCase}`);
-                dateInfo.treatmentTimes.push({ timeSlot: 'morning', medicalCase, treatment, dosage, isCompleted: morningValue === true || morningValue === 'TRUE', isGeneral: false, isPersonal: false });
-              }
-              if(noonValue === false || noonValue === 'FALSE' || noonValue === true || noonValue === 'TRUE') {
-                console.log(`   ➕ Adding NOON time slot (completed: ${noonValue === true || noonValue === 'TRUE'}): ${treatment || medicalCase}`);
-                dateInfo.treatmentTimes.push({ timeSlot: 'noon', medicalCase, treatment, dosage, isCompleted: noonValue === true || noonValue === 'TRUE', isGeneral: false, isPersonal: false });
-              }
-              if(eveningValue === false || eveningValue === 'FALSE' || eveningValue === true || eveningValue === 'TRUE') {
-                console.log(`   ➕ Adding EVENING time slot (completed: ${eveningValue === true || eveningValue === 'TRUE'}): ${treatment || medicalCase}`);
-                dateInfo.treatmentTimes.push({ timeSlot: 'evening', medicalCase, treatment, dosage, isCompleted: eveningValue === true || eveningValue === 'TRUE', isGeneral: false, isPersonal: false });
-              }
-            } else {
-              console.log(`   ⚠️ No valid time slots found in this row`);
-            }
-          }
+          rawMatchingRows.push({ parsedRowDate, rowValues });
         }
       }
     }
-    
+
+    // Post-process matching rows now that we've seen the whole sheet and know
+    // which time-slot columns have BOOLEAN validation.
+    console.log(`   📋 Detected checkbox columns: morning=${checkboxCols.morning}, noon=${checkboxCols.noon}, evening=${checkboxCols.evening}`);
+    const isBoolVal = v => v === true || v === 'TRUE' || v === false || v === 'FALSE';
+    const isChecked = v => v === true || v === 'TRUE';
+
+    for (const { parsedRowDate, rowValues } of rawMatchingRows) {
+      const dateInfo = datesToFind[parsedRowDate];
+
+      const morningValue = rowValues[morningCol];
+      const noonValue = rowValues[noonCol];
+      const eveningValue = rowValues[eveningCol];
+      const generalTreatmentValue = rowValues[generalTreatmentCol];
+      const personalTreatmentValue = rowValues[personalTreatmentCol];
+      const medicalCase = rowValues[caseCol] || '';
+      const treatment = rowValues[treatmentCol] || '';
+      const dosage = rowValues[dosageCol] || '';
+
+      const isGeneralTreatmentChecked = (generalTreatmentValue === true || generalTreatmentValue === 'TRUE');
+
+      if (isGeneralTreatmentChecked && excludeCheckedGeneralTreatments) {
+        console.log(`   ⏭️ Skipping row - general treatment is checked and excludeCheckedGeneralTreatments=true`);
+        continue;
+      }
+
+      const hasPersonalOrGeneralCheckbox = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE' ||
+        personalTreatmentValue === false || personalTreatmentValue === 'FALSE' ||
+        generalTreatmentValue === true || generalTreatmentValue === 'TRUE' ||
+        generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
+
+      console.log(`   🔍 Treatment type: hasPersonalOrGeneralCheckbox=${hasPersonalOrGeneralCheckbox}`);
+
+      if (hasPersonalOrGeneralCheckbox) {
+        const isPersonalTreatmentChecked = (personalTreatmentValue === true || personalTreatmentValue === 'TRUE');
+        const isPersonalTreatmentUnchecked = (personalTreatmentValue === false || personalTreatmentValue === 'FALSE');
+        const isGeneralUnchecked = (generalTreatmentValue === false || generalTreatmentValue === 'FALSE');
+
+        if (isPersonalTreatmentChecked) {
+          console.log(`   ➕ Adding PERSONAL treatment (checked): ${treatment || medicalCase}`);
+          dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: true, isPersonal: true });
+        } else if (isPersonalTreatmentUnchecked) {
+          console.log(`   ➕ Adding PERSONAL treatment (unchecked): ${treatment || medicalCase}`);
+          dateInfo.treatmentTimes.push({ timeSlot: 'personal', medicalCase, treatment, dosage, isGeneral: false, isCompleted: false, isPersonal: true });
+        } else if (isGeneralTreatmentChecked) {
+          console.log(`   ➕ Adding GENERAL treatment (checked): ${treatment || medicalCase}`);
+          dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: true, isPersonal: false });
+        } else if (isGeneralUnchecked) {
+          console.log(`   ➕ Adding GENERAL treatment (unchecked): ${treatment || medicalCase}`);
+          dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: false, isPersonal: false });
+        }
+      } else {
+        // Treat '' as FALSE for any column with detected BOOLEAN validation.
+        const morningActive = isBoolVal(morningValue) || (checkboxCols.morning && morningValue === '');
+        const noonActive    = isBoolVal(noonValue)    || (checkboxCols.noon    && noonValue    === '');
+        const eveningActive = isBoolVal(eveningValue) || (checkboxCols.evening && eveningValue === '');
+        const hasTimeSlots = morningActive || noonActive || eveningActive;
+
+        if (hasTimeSlots) {
+          if (morningActive) {
+            console.log(`   ➕ Adding MORNING time slot (completed: ${isChecked(morningValue)}): ${treatment || medicalCase}`);
+            dateInfo.treatmentTimes.push({ timeSlot: 'morning', medicalCase, treatment, dosage, isCompleted: isChecked(morningValue), isGeneral: false, isPersonal: false });
+          }
+          if (noonActive) {
+            console.log(`   ➕ Adding NOON time slot (completed: ${isChecked(noonValue)}): ${treatment || medicalCase}`);
+            dateInfo.treatmentTimes.push({ timeSlot: 'noon', medicalCase, treatment, dosage, isCompleted: isChecked(noonValue), isGeneral: false, isPersonal: false });
+          }
+          if (eveningActive) {
+            console.log(`   ➕ Adding EVENING time slot (completed: ${isChecked(eveningValue)}): ${treatment || medicalCase}`);
+            dateInfo.treatmentTimes.push({ timeSlot: 'evening', medicalCase, treatment, dosage, isCompleted: isChecked(eveningValue), isGeneral: false, isPersonal: false });
+          }
+        } else {
+          console.log(`   ⚠️ No valid time slots found in this row`);
+        }
+      }
+    }
+
     // Store results in cache and merge with cached results
     for (const [parsedDate, dateInfo] of Object.entries(datesToFind)) {
       const result = { hasTreatment: dateInfo.hasTreatment, treatmentTimes: dateInfo.treatmentTimes, animalImage };

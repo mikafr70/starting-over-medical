@@ -244,9 +244,9 @@ export function AddTreatment({ animalName, animalType: initialAnimalType, onBack
 //      const hasMorning = String(mt.morning) !== '' && mt.morning !== '0';
 //      const hasNoon = String(mt.noon) !== '' && mt.noon !== '0';
 //      const hasEvening = String(mt.evening) !== '' && mt.evening !== '0';
-      const hasMorning = mt.morning ? 'FALSE' : '';
-      const hasNoon = mt.noon ? 'FALSE' : '';
-      const hasEvening = mt.evening ? 'FALSE' : '';
+      const hasMorning = (mt.morning !== '' && mt.morning != null) ? 'FALSE' : '';
+      const hasNoon = (mt.noon !== '' && mt.noon != null) ? 'FALSE' : '';
+      const hasEvening = (mt.evening !== '' && mt.evening != null) ? 'FALSE' : '';
       const timesPerDay = (hasMorning ? 1 : 0) + (hasNoon ? 1 : 0) + (hasEvening ? 1 : 0);
       const frequency = Number(mt.frequency) || 1;
       // Allow scheduling even if no time is selected (timesPerDay === 0)
