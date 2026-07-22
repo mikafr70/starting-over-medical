@@ -582,7 +582,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
                 value={assignedCaregiver}
                 onClick={e => e.stopPropagation()}
                 onChange={e => { e.stopPropagation(); assignCaregiver(treatmentKey, e.target.value); }}
-                className="text-sm border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 max-w-[130px]"
+                className="text-sm border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 max-w-[160px] min-w-0"
                 style={{
                   borderColor: assignedCaregiver ? '#6B9080' : '#D1D5DB',
                   color: assignedCaregiver ? '#374151' : '#9CA3AF',
@@ -606,8 +606,8 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
       {/* Follow-up alert — fixed to the right side of the viewport, visible while checking or when results exist */}
       {(checkingFollowUp || needsFollowUp.length > 0) && (
         <div
-          className="fixed z-50 rounded-xl shadow-lg w-72 px-8 py-6 text-black text-sm font-medium"
-          style={{ top: '10rem', left: '1rem', backgroundColor: '#FEF9C3' }}
+          className="fixed z-50 rounded-xl shadow-lg px-6 py-5 text-black text-sm font-medium left-4 right-4 sm:left-auto sm:right-4 sm:w-72"
+          style={{ top: '5rem', backgroundColor: '#FEF9C3' }}
         >
           {checkingFollowUp ? (
             <div className="flex items-center gap-2">
@@ -787,7 +787,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         </div>{/* end grid */}
 
         {/* Add Treatment Button - Desktop */}
-        <div className="hidden md:block fixed top-24 left-8 z-10">
+        <div className="hidden md:block fixed top-24 right-8 z-10">
           <Button
             onClick={onAddTreatment}
             className="gap-2 shadow-lg"
@@ -801,7 +801,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         {/* Add Treatment Button - Mobile (Floating) */}
         <Button
           onClick={onAddTreatment}
-          className="md:hidden fixed bottom-6 left-6 z-10 w-14 h-14 rounded-full shadow-xl p-0"
+          className="md:hidden fixed bottom-6 right-6 z-10 w-14 h-14 rounded-full shadow-xl p-0"
           size="icon"
         >
           <Plus className="w-6 h-6" />

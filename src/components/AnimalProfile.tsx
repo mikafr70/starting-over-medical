@@ -894,7 +894,7 @@ export function AnimalProfile({ animalType, animalName, onBack, onAddTreatment }
 
       {/* Photo popup — small floating card, not a full-screen overlay */}
       {photoModal.open && (
-        <div className="fixed bottom-6 left-6 z-50 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+        <div className="fixed bottom-6 right-4 left-4 sm:left-auto sm:right-6 sm:w-72 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
             <h3 className="font-semibold text-sm text-right">

@@ -1068,7 +1068,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
 
       {/* Add Treatment Button - Desktop */}
       {onAddTreatment && (
-        <div className="hidden md:block fixed top-24 left-8 z-10">
+        <div className="hidden md:block fixed top-24 right-8 z-10">
           <Button
             onClick={onAddTreatment}
             className="gap-2 shadow-lg"
@@ -1084,7 +1084,7 @@ export function PersonalTreatments({ onSelectAnimal, onAddTreatment, email }: Pe
       {onAddTreatment && (
         <Button
           onClick={onAddTreatment}
-          className="md:hidden fixed bottom-6 left-6 z-10 w-14 h-14 rounded-full shadow-xl p-0"
+          className="md:hidden fixed bottom-6 right-6 z-10 w-14 h-14 rounded-full shadow-xl p-0"
           size="icon"
         >
           <Pill className="w-6 h-6" />

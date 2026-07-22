@@ -6,6 +6,11 @@ import '../src/index.css';   // adjust this to match your real CSS file(s)
 
 import React from "react";
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export const metadata: Metadata = {
   title: "Starting Over Medical",
   description: "Rehabilitation Farm App",

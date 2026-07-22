@@ -127,7 +127,7 @@ export function Dashboard({ onSelectAnimal, onAddTreatment, email }: DashboardPr
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F7F3ED' }}>
-      <header style={{ paddingTop: '200px', paddingBottom: '40px' }}>
+      <header style={{ paddingTop: 'clamp(60px, 12vh, 200px)', paddingBottom: '40px' }}>
         <div style={{ marginBottom: '2rem' }}>
         <h1
           style={{

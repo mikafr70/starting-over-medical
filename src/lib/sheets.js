@@ -2848,8 +2848,8 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
         }
         
         if (parsedRowDate < minDate) {
-          console.log(`   ⏹️ Date ${parsedRowDate} < minDate ${minDate}, stopping scan`);
-          break outerLoop;
+          console.log(`   ⏭️ Date ${parsedRowDate} < minDate ${minDate}, skipping row (rows may not be in strict date order)`);
+          continue;
         }
         
         if (datesToFind[parsedRowDate]) {
