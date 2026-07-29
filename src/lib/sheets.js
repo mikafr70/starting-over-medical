@@ -3508,173 +3508,266 @@ export async function removeAnimalFromList(animalType, animalName) {
   }
 }
 
-/*-----------------------------------------------
-  function to collect each file that was edited in the last two weeks by folder id and check if each file has treatments today
-  ----------------------------------------------*/
-export async function getRecentlyEditedFilesInFolderWithTreatmentsToday(folderId, targetDate = null) {
-  try {
-    await ensureConfigLoaded();
-    console.log('>>> getRecentlyEditedFilesInFolderWithTreatmentsToday...');
-    const filesWithTreatmentsToday = [];
-    if (!folderId) throw new Error('folderId is required'); 
-    const drive = getDriveClient();
-    let startDate;
-    /* TEMPORARY: Set to true to only get files edited today
-    const ONLY_TODAY_EDITS = true;
-    
-    
-    if (ONLY_TODAY_EDITS) {
-      // Get files edited starting from today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
-      startDate = today;
-      console.log('TEMPORARY MODE: Fetching only files edited today:', today.toISOString());
-    } else {
-      */
-      // Original behavior: two weeks ago
-      const twoWeeksAgo = new Date();
-      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7);// - 14); !!!!!!!!!!!!!!!!!!!!!!!!!!
-      startDate = twoWeeksAgo;
-    //}
-    
-    const startDateISO = startDate.toISOString();
-    
-    // Use provided date or default to today
-    const dateToCheck = targetDate ? new Date(targetDate) : new Date();
-    const dateStr = `${dateToCheck.getDate()}/${dateToCheck.getMonth() + 1}/${dateToCheck.getFullYear()}`;
-    
-    // list file names in folder modified since startDate
-    const tempResponse = await drive.files.list({
-      q: `'${folderId}' in parents and modifiedTime >= '${startDateISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
-      fields: 'files(id, name, modifiedTime)',
-      spaces: 'drive'
-    });
-    
-    console.log(`Found ${tempResponse.data.files.length} files modified since ${startDateISO}`);
-    
-    for (const file of tempResponse.data.files) {
-      const { hasTreatment,treatmentTimes} = await hasTreatmentToday(file.id, dateStr);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+/*--------------------------------------------------
+  TREATMENT LOG (index of treatment courses)
 
-      if (hasTreatment) {
-        filesWithTreatmentsToday.push(file.name, treatmentTimes);
-      }
-    }
-    return filesWithTreatmentsToday;
-  } catch (error) {
-    console.error('Error in getRecentlyEditedFilesInFolder:', error);
-    return [];
+  A lightweight index appended on every treatment save so the daily
+  schedule can find which animals have treatments on a given date
+  WITHOUT scanning and reading every animal file. This avoids the
+  Drive/Sheets quota exhaustion and the modifiedTime-window blind
+  spots (missed past-due / widely-spaced treatments) of the old scan.
+
+  One row per course. Headers:
+  animalType | animalName | animalId | fileId | startDate | endDate | frequency | timeSlots | createdAt
+---------------------------------------------------*/
+export const TREATMENT_LOG_SHEET_ID =
+  process.env.TREATMENT_LOG_SHEET_ID || '1wFJrh8bHQH22yoBa2d5MR_Jz-NISFiboCxoSIpInQn8';
+
+const TREATMENT_LOG_HEADERS = [
+  'animalType', 'animalName', 'animalId', 'fileId',
+  'startDate', 'endDate', 'frequency', 'timeSlots', 'createdAt'
+];
+
+// Parse a DD/MM/YYYY (or ISO / YYYY-MM-DD) date string to a JS Date at local
+// midnight. Returns null when the string cannot be parsed.
+function parseDMYtoDate(str) {
+  if (!str) return null;
+  let s = str.toString();
+  if (s.includes('T')) s = s.split('T')[0];
+  const slash = s.split('/');
+  if (slash.length === 3) {
+    const [day, month, year] = slash.map(Number);
+    return new Date(year, month - 1, day);
   }
+  const dash = s.split('-');
+  if (dash.length === 3) {
+    const [year, month, day] = dash.map(Number);
+    return new Date(year, month - 1, day);
+  }
+  return null;
 }
 
-/*-----------------------------------------------
-  Optimized version: Get files with treatments for multiple dates in one call
-  ----------------------------------------------*/
-export async function getRecentlyEditedFilesWithTreatmentsForDates(folderId, targetDates = [], onFileChecked = null) {
-  try {
-    await ensureConfigLoaded();
-    console.log(`>>> getRecentlyEditedFilesWithTreatmentsForDates for ${targetDates.length} dates...`);
-    if (!folderId) throw new Error('folderId is required');
-    if (targetDates.length === 0) throw new Error('targetDates array is required');
-    
-    const drive = getDriveClient();
-    const lookbackDate = new Date();
-    lookbackDate.setDate(lookbackDate.getDate() - 1); // Look back 1 day to catch all recent files
-    lookbackDate.setHours(0, 0, 0, 0);
-    const startDateISO = lookbackDate.toISOString();
-    
-    console.log(`   📅 Looking for files modified since: ${lookbackDate.toISOString()} (1 day ago)`);
-    console.log(`   📁 Searching in folder: ${folderId}`);
-    
-    // Convert Date objects to strings
-    const dateStrings = targetDates.map(date => 
-      `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`
-    );
-    
-    console.log(`   🎯 Target dates to check: ${dateStrings.join(', ')}`);
-    
-    // List files modified in the last 3 days - WITH PAGINATION
-    let allFiles = [];
-    let pageToken = null;
-    let pageCount = 0;
-    
-    console.log(`   🔍 Starting file search with pagination...`);
-    
-    do {
-      pageCount++;
-      console.log(`   📄 Fetching page ${pageCount}${pageToken ? ` (token: ${pageToken.substring(0, 20)}...)` : ' (first page)'}...`);
-      
-      const response = await drive.files.list({
-        q: `'${folderId}' in parents and modifiedTime >= '${startDateISO}' and mimeType='application/vnd.google-apps.spreadsheet'`,
-        // Include parents so we can verify file belongs to the folder (extra safety)
-        fields: 'nextPageToken, files(id, name, modifiedTime, parents)',
-        spaces: 'drive',
-        pageSize: 1000, // Maximum allowed by Google Drive API
-        pageToken: pageToken
-      });
-      
-      const filesInPage = response.data.files || [];
-      allFiles = allFiles.concat(filesInPage);
-      pageToken = response.data.nextPageToken;
-      
-      console.log(`   ✅ Page ${pageCount}: Got ${filesInPage.length} files. Total so far: ${allFiles.length}. More pages: ${pageToken ? 'YES' : 'NO'}`);
-    } while (pageToken);
-    
-    console.log(`\n📊 FINAL RESULT: Found ${allFiles.length} total files across ${pageCount} page(s)`);
-    console.log(`📝 File names (${allFiles.length} total): ${allFiles.map(f => f.name).join(', ')}`);
-    
-    // Object to store results: { dateStr: [fileName1, treatmentTimes1, ...] }
-    const resultsByDate = {};
-    dateStrings.forEach(dateStr => resultsByDate[dateStr] = []);
-    
-    // Check all dates for each file in a single call
-    for (const file of allFiles) {
-      // Verify this file actually belongs to the folder we searched
-      const parents = file.parents || [];
-      if (!parents.includes(folderId)) {
-        console.warn(`   ⚠️ Skipping file not in expected folder: ${file.name} (${file.id}) - parents: ${parents.join(', ')}`);
-        continue;
-      }
+function formatDateDMY(date) {
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
 
-      console.log(`   Checking file: ${file.name} (${file.id})`);
-      console.log(`   ℹ️ File modified at ${file.modifiedTime}`);
+/*
+  Group the flat, already-date-expanded treatment rows produced by the
+  AddTreatment form into one log entry per course (same medication + case),
+  summarising the date range, frequency and time slots for each.
+*/
+export function buildTreatmentLogEntries({
+  animalType,
+  animalName,
+  animalId = '',
+  fileId,
+  treatments = [],
+  isGeneralCaregiver = false,
+  isPersonalCaregiver = false
+}) {
+  if (!Array.isArray(treatments) || treatments.length === 0) return [];
 
-      const dateResults = await hasTreatmentForDates(file.id, dateStrings, false, file.modifiedTime);
-      console.log(`   Results for ${file.name}:`, Object.entries(dateResults).map(([date, res]) => `${date}: ${res.hasTreatment} (${res.treatmentTimes?.length || 0} slots)`).join(', '));
-      
-      // Detailed logging for files with treatments
-      for (const [dateStr, { hasTreatment, treatmentTimes }] of Object.entries(dateResults)) {
-        if (hasTreatment && treatmentTimes && treatmentTimes.length > 0) {
-          console.log(`   ✅ ${file.name} has ${treatmentTimes.length} treatment(s) for ${dateStr}:`);
-          treatmentTimes.forEach((t, idx) => {
-            console.log(`      ${idx + 1}. Slot: ${t.timeSlot}, Treatment: ${t.treatment || t.medicalCase || 'N/A'}, Completed: ${t.isCompleted}`);
-          });
-        }
-      }
-      
-      // Process results for each date
-      for (const [dateStr, { hasTreatment, treatmentTimes }] of Object.entries(dateResults)) {
-        if (hasTreatment) {
-          resultsByDate[dateStr].push(file.name, treatmentTimes);
-        }
-      }
+  // Group rows into courses keyed by medication + case.
+  const groups = new Map();
+  for (const t of treatments) {
+    const medication = (t.treatment || '').toString().trim();
+    const caseName = (t.case || '').toString().trim();
+    const key = `${medication}||${caseName}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
 
-      // Let the caller stream this file's results immediately instead of
-      // waiting for every file in the folder to be checked.
-      if (onFileChecked) {
-        try {
-          await onFileChecked(file.name, dateResults);
-        } catch (callbackError) {
-          console.error('Error in onFileChecked callback:', callbackError?.message || callbackError);
-        }
-      }
+  const createdAt = new Date().toISOString();
+  const entries = [];
+
+  for (const rows of groups.values()) {
+    // Distinct, sorted dates for this course.
+    const times = rows
+      .map(r => parseDMYtoDate(r.date))
+      .filter(d => d && !isNaN(d.getTime()))
+      .map(d => d.getTime());
+    if (times.length === 0) continue;
+    const distinct = [...new Set(times)].sort((a, b) => a - b);
+
+    const startDate = formatDateDMY(new Date(distinct[0]));
+    const endDate = formatDateDMY(new Date(distinct[distinct.length - 1]));
+
+    // Frequency = day gap between the first two distinct dates (default 1).
+    let frequency = 1;
+    if (distinct.length >= 2) {
+      const gap = Math.round((distinct[1] - distinct[0]) / (24 * 60 * 60 * 1000));
+      if (gap > 0) frequency = gap;
     }
 
-    return resultsByDate;
-  } catch (error) {
-    console.error('Error in getRecentlyEditedFilesWithTreatmentsForDates:', error);
-    return {};
+    // Time slots used by this course. Row values for morning/noon/evening are
+    // '' when unused and 'FALSE' (an unchecked checkbox) when the slot applies.
+    const slots = new Set();
+    for (const r of rows) {
+      if (r.morning !== '' && r.morning != null) slots.add('morning');
+      if (r.noon !== '' && r.noon != null) slots.add('noon');
+      if (r.evening !== '' && r.evening != null) slots.add('evening');
+    }
+    if (isGeneralCaregiver) slots.add('general');
+    if (isPersonalCaregiver) slots.add('personal');
+    if (slots.size === 0) slots.add('general');
+
+    entries.push({
+      animalType: animalType || '',
+      animalName: animalName || '',
+      animalId: animalId || '',
+      fileId: fileId || '',
+      startDate,
+      endDate,
+      frequency,
+      timeSlots: Array.from(slots).join(','),
+      createdAt
+    });
   }
+
+  return entries;
+}
+
+// Append pre-built log entries to the treatment-log sheet. Writes the header
+// row first if the sheet is empty. Uses the service-account Sheets client.
+export async function appendTreatmentLog(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return { appended: 0 };
+  await ensureConfigLoaded();
+
+  const auth = getSheetsAuth();
+  const sheetsApi = google.sheets({ version: 'v4', auth });
+
+  // Ensure the header row exists (first write to a fresh sheet).
+  const headerResp = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: TREATMENT_LOG_SHEET_ID,
+    range: 'A1:I1'
+  });
+  const existingHeader = headerResp.data.values && headerResp.data.values[0];
+  if (!existingHeader || existingHeader.length === 0) {
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId: TREATMENT_LOG_SHEET_ID,
+      range: 'A1:I1',
+      valueInputOption: 'RAW',
+      resource: { values: [TREATMENT_LOG_HEADERS] }
+    });
+    console.log('📝 Treatment log: wrote header row to empty sheet');
+  }
+
+  const values = entries.map(e => [
+    e.animalType, e.animalName, e.animalId, e.fileId,
+    e.startDate, e.endDate, e.frequency, e.timeSlots, e.createdAt
+  ]);
+
+  await sheetsApi.spreadsheets.values.append({
+    spreadsheetId: TREATMENT_LOG_SHEET_ID,
+    range: 'A1',
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    resource: { values }
+  });
+
+  console.log(`📝 Treatment log: appended ${values.length} course entr${values.length === 1 ? 'y' : 'ies'}`);
+  return { appended: values.length };
+}
+
+// Convenience: build entries from a bulk save and append them in one call.
+// Best-effort by contract — callers should wrap this in try/catch so a log
+// failure never blocks the main treatment save.
+export async function logTreatmentCourses(params) {
+  const entries = buildTreatmentLogEntries(params);
+  await appendTreatmentLog(entries);
+  return entries;
+}
+
+// Read the treatment-log index and return the course entries whose date range
+// covers `dateStr` (DD/MM/YYYY), optionally filtered to a set of animal type
+// keys. This is a SINGLE sheet read — it replaces the old modifiedTime-based
+// Drive folder scan that had to list + read every recently-edited file.
+export async function getTreatmentLogEntriesForDate(dateStr, allowedTypes = null) {
+  await ensureConfigLoaded();
+  const auth = getSheetsAuth();
+  const sheetsApi = google.sheets({ version: 'v4', auth });
+
+  const resp = await sheetsApi.spreadsheets.values.get({
+    spreadsheetId: TREATMENT_LOG_SHEET_ID,
+    range: 'A2:I'
+  });
+  const rows = resp.data.values || [];
+
+  const target = parseDMY(dateStr);
+  const allowed = allowedTypes ? new Set(allowedTypes) : null;
+  const entries = [];
+
+  for (const row of rows) {
+    const [animalType, animalName, animalId, fileId, startDate, endDate, frequency, timeSlots] = row;
+    if (!fileId) continue;
+    if (allowed && !allowed.has(animalType)) continue;
+    const start = parseDMY(startDate);
+    const end = parseDMY(endDate);
+    if (!start || !end) continue;
+    if (target < start || target > end) continue;
+    entries.push({
+      animalType,
+      animalName,
+      animalId: animalId || '',
+      fileId,
+      startDate,
+      endDate,
+      frequency: Number(frequency) || 1,
+      timeSlots: timeSlots || ''
+    });
+  }
+
+  console.log(`📖 Treatment log: ${entries.length} course entr${entries.length === 1 ? 'y' : 'ies'} cover ${dateStr}`);
+  return entries;
+}
+
+// Resolve the actual scheduled treatments for `dateStr` using the log as the
+// index: read the log once, then open ONLY the matched files to read their real
+// rows + completion status for that date. Files are deduped so each is read at
+// most once. Stale log rows self-heal — if a file no longer has a treatment on
+// the date (off-frequency day, deleted/edited row, deleted file) it is skipped.
+//
+// When `onFileChecked(record)` is supplied it is awaited per matched file so
+// callers (e.g. the schedule stream) can emit results as they arrive.
+export async function getScheduledTreatmentsFromLog(dateStr, allowedTypes = null, onFileChecked = null) {
+  await ensureConfigLoaded();
+  const entries = await getTreatmentLogEntriesForDate(dateStr, allowedTypes);
+
+  // Dedupe by fileId — one file's sheet read returns every treatment for the
+  // date regardless of how many log courses point at it.
+  const byFile = new Map();
+  for (const entry of entries) {
+    if (!byFile.has(entry.fileId)) byFile.set(entry.fileId, entry);
+  }
+
+  const records = [];
+  for (const entry of byFile.values()) {
+    let dateResults;
+    try {
+      dateResults = await hasTreatmentForDates(entry.fileId, [dateStr], false, null);
+    } catch (err) {
+      console.error(`Log reader: failed reading file ${entry.fileId} (${entry.animalName}):`, err?.message || err);
+      continue;
+    }
+    const res = dateResults[dateStr];
+    if (!res || !res.hasTreatment) continue;
+
+    const record = { ...entry, treatmentTimes: res.treatmentTimes || [] };
+    records.push(record);
+
+    if (onFileChecked) {
+      try {
+        await onFileChecked(record);
+      } catch (cbErr) {
+        console.error('Log reader onFileChecked error:', cbErr?.message || cbErr);
+      }
+    }
+  }
+
+  return records;
 }
 
 /*--------------------------------------------------

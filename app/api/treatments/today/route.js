@@ -1,5 +1,4 @@
-import { time } from 'console';
-import { getRecentlyEditedFilesWithTreatmentsForDates, ANIMAL_TREATMENT_SHEETS ,ensureConfigLoaded, getAnimalPhoto} from '../../../../src/lib/sheets.js';
+import { getScheduledTreatmentsFromLog, ANIMAL_TREATMENT_SHEETS, ensureConfigLoaded, getAnimalPhoto } from '../../../../src/lib/sheets.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // Set to 5 minutes (requires Vercel Pro)
@@ -11,119 +10,134 @@ export const fetchCache = 'force-no-store';  // don't cache in the static cache
 // optionally:
 export const revalidate = 0;                 // disable ISR if present
 
+// Only these animal types are shown on the shared daily schedule.
+const allowedTypes = ['donkey', 'horse', 'sheep', 'goat', 'camel', 'mule'];
+
+// Build the client-facing treatment objects for a single log record.
+// Regular time-slot rows are grouped per slot; personal treatments are emitted
+// individually; general treatments are skipped (shown elsewhere).
+async function buildTreatmentsFromRecord(record, photoCache, dateObj, label) {
+  const { animalType, animalName, fileId, treatmentTimes } = record;
+  const sheets = ANIMAL_TREATMENT_SHEETS();
+  const typeInfo = sheets[animalType];
+  if (!typeInfo) return [];
+
+  // Fetch photo once per animal.
+  const cacheKey = `${animalType}_${animalName}`;
+  if (!photoCache.has(cacheKey)) {
+    try {
+      photoCache.set(cacheKey, (await getAnimalPhoto(animalType, animalName)) || null);
+    } catch (error) {
+      photoCache.set(cacheKey, null);
+    }
+  }
+  const animalPhoto = photoCache.get(cacheKey);
+
+  const out = [];
+  const groupedTreatments = new Map();
+
+  for (const timeInfo of treatmentTimes) {
+    if (timeInfo.timeSlot === 'personal') {
+      out.push({
+        id: `${animalType}_${fileId}_personal_${label}_${Math.random()}`,
+        animalName,
+        animalType: typeInfo.displayName,
+        animalTypeKey: animalType,
+        animalImage: animalPhoto || '',
+        medicalCase: timeInfo.medicalCase || timeInfo.treatment || 'ללא תיאור',
+        treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
+        time: getTimeBySlot(timeInfo.timeSlot),
+        timeSlot: 'personal',
+        caregiver: timeInfo.caregiver || 'נקבע לפי זמינות',
+        emoji: typeInfo.emoji,
+        isCompleted: timeInfo.isCompleted || false,
+        treatmentDate: dateObj.toISOString().split('T')[0],
+        dateLabel: label,
+        rowCount: 1,
+        sourceFolderId: typeInfo.folderId
+      });
+    } else if (timeInfo.timeSlot !== 'general') {
+      if (!groupedTreatments.has(timeInfo.timeSlot)) {
+        groupedTreatments.set(timeInfo.timeSlot, []);
+      }
+      groupedTreatments.get(timeInfo.timeSlot).push(timeInfo);
+    }
+  }
+
+  for (const [timeSlot, rows] of groupedTreatments.entries()) {
+    const medicalCases = rows.map(r => r.medicalCase).filter(c => c && c.trim());
+    const treatmentsList = rows.map(r => r.treatment).filter(t => t && t.trim());
+
+    let displayText;
+    if (medicalCases.length > 0) {
+      displayText = medicalCases[0];
+    } else if (treatmentsList.length > 0) {
+      displayText = treatmentsList.join(', ');
+    } else {
+      displayText = 'ללא תיאור';
+    }
+
+    const isCompleted = rows.every(r => r.isCompleted === true);
+
+    out.push({
+      id: `${animalType}_${fileId}_${timeSlot}_${label}_${Math.random()}`,
+      animalName,
+      animalType: typeInfo.displayName,
+      animalTypeKey: animalType,
+      animalImage: animalPhoto || '',
+      medicalCase: displayText,
+      treatmentType: geteTreatmentTypeByTimeSlot(timeSlot),
+      time: getTimeBySlot(timeSlot),
+      timeSlot,
+      caregiver: 'נקבע לפי זמינות',
+      emoji: typeInfo.emoji,
+      isCompleted,
+      treatmentDate: dateObj.toISOString().split('T')[0],
+      dateLabel: label,
+      rowCount: rows.length
+    });
+  }
+
+  return out;
+}
+
 export async function GET(request) {
   const requestId = Math.random().toString(36).substring(7);
   console.log(`\n${'='.repeat(80)}`);
   console.log(`🔵 NEW API REQUEST [${requestId}] - Starting to fetch treatments`);
   console.log(`${'='.repeat(80)}\n`);
-  
-  // Check if client supports streaming
+
   const url = new URL(request.url);
   const useStreaming = url.searchParams.get('stream') !== 'false';
-  
+
+  // Optional ?date=YYYY-MM-DD (or DD/MM/YYYY) lets the client view other days.
+  const dateParam = url.searchParams.get('date');
+
   try {
     await ensureConfigLoaded();
 
-    const photoCache = new Map(); // Cache photos to avoid duplicate fetches
-    
-    console.log('Starting to fetch treatments for today...');
+    const photoCache = new Map();
 
-    // Calculate today's date
-    const today = new Date();
-    
-    const datesToFetch = [
-      { date: today, label: 'today' }
-    ];
+    // Resolve the requested date (defaults to today).
+    let targetDate = new Date();
+    if (dateParam) {
+      const parsed = parseDateParam(dateParam);
+      if (parsed) targetDate = parsed;
+    }
+    const dateStr = `${targetDate.getDate()}/${targetDate.getMonth() + 1}/${targetDate.getFullYear()}`;
+    const isToday = targetDate.toDateString() === new Date().toDateString();
+    const label = isToday ? 'today' : 'other';
 
-    // Process animal types in parallel with limited concurrency
-    // Filter to only include donkeys, horses, sheep, goats, camels, and mules
-    const allowedTypes = ['donkey', 'horse', 'sheep', 'goat', 'camel', 'mule'];
-    const animalTypes = Object.keys(ANIMAL_TREATMENT_SHEETS()).filter(
-      type => allowedTypes.includes(type) && ANIMAL_TREATMENT_SHEETS()[type].folderId
-    );
-    
-    console.log(`Processing animal types: ${animalTypes.join(', ')}`);
-    
+    console.log(`Fetching treatments for ${dateStr} (label: ${label}) via treatment log...`);
+
     if (!useStreaming) {
-      // Original non-streaming behavior
+      // Non-streaming: read the log, resolve all files, return one array.
+      const records = await getScheduledTreatmentsFromLog(dateStr, allowedTypes);
       const allTreatments = [];
-      
-      await Promise.all(animalTypes.map(async (animalType) => {
-        console.log(`Fetching treatments for ${animalType} from folder ${ANIMAL_TREATMENT_SHEETS()[animalType].folderId}`);
-        
-        try {
-          const resultsByDate = await getRecentlyEditedFilesWithTreatmentsForDates(
-            ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
-            datesToFetch.map(d => d.date)
-          );
-          
-          for (const { date, label } of datesToFetch) {
-            const dateStr = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
-            const result = resultsByDate[dateStr] || [];
-            
-            for (let i = 0; i < result.length; i += 2) {
-              const fileName = result[i];
-              const treatmentTimes = result[i + 1] || [];
-            
-              if (fileName && treatmentTimes.length > 0) {
-                let animalName = fileName
-                  .replace('.xlsx', '')
-                  .replace('.xls', '')
-                  .replace(/^עותק של\s+/i, '')
-                  .trim();
-                
-                animalName = animalName.replace(/\s+\d{15}$/, '').trim();
-                
-                if (!animalName) {
-                  animalName = fileName.replace('.xlsx', '').replace('.xls', '');
-                }
-
-                const cacheKey = `${animalType}_${animalName}`;
-                if (!photoCache.has(cacheKey)) {
-                  try {
-                    const photo = await getAnimalPhoto(animalType, animalName);
-                    photoCache.set(cacheKey, photo || null);
-                  } catch (error) {
-                    console.log(`No photo found for ${animalName} (${animalType})`);
-                    photoCache.set(cacheKey, null);
-                  }
-                }
-                
-                const animalPhoto = photoCache.get(cacheKey);
-                
-                treatmentTimes.forEach(timeInfo => {
-                  if (timeInfo.timeSlot === 'personal' || timeInfo.timeSlot === 'general') {
-                    return;
-                  }
-                  
-                  const medicalCaseValue = timeInfo.medicalCase || timeInfo.treatment || 'ללא תיאור';
-                  
-                  const treatment = {
-                    id: `${animalType}_${fileName}_${timeInfo.timeSlot}_${label}_${Math.random()}`,
-                    animalName: animalName,
-                    animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
-                    animalTypeKey: animalType,
-                    animalImage: animalPhoto || '',
-                    medicalCase: medicalCaseValue,
-                    treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
-                    time: getTimeBySlot(timeInfo.timeSlot),
-                    timeSlot: timeInfo.timeSlot,
-                    caregiver: "נקבע לפי זמינות",
-                    emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
-                    isCompleted: timeInfo.isCompleted || false,
-                    treatmentDate: date.toISOString().split('T')[0],
-                    dateLabel: label
-                  };
-                  
-                  allTreatments.push(treatment);
-                });
-              }
-            }
-          }
-        } catch (error) {
-          console.error(`Error fetching ${animalType}:`, error.message);
-        }
-      }));
+      for (const record of records) {
+        const built = await buildTreatmentsFromRecord(record, photoCache, targetDate, label);
+        allTreatments.push(...built);
+      }
 
       console.log(`Found ${allTreatments.length} total treatments`);
       return Response.json({
@@ -132,160 +146,39 @@ export async function GET(request) {
         timestamp: new Date().toISOString()
       });
     }
-    
-    // Streaming response: send chunks as they're ready
+
+    // Streaming response: emit each file's treatments the moment it's resolved.
     const encoder = new TextEncoder();
     let totalSent = 0;
-    
+
     const streamResponse = new ReadableStream({
       async start(controller) {
         try {
-          // Send initial ping to open stream immediately
           const ping = { type: 'ping', message: 'Stream started' };
           controller.enqueue(encoder.encode(JSON.stringify(ping) + '\n'));
           console.log('📡 Sent initial ping');
-          
+
           let processedAnimalsCount = 0;
 
-          // Send a single treatment immediately as it's found
-          const sendTreatment = (treatment) => {
-            const data = JSON.stringify({ treatments: [treatment], more: true }) + '\n';
-            controller.enqueue(encoder.encode(data));
-            totalSent += 1;
-            console.log(`📨 Sent treatment for ${treatment.animalName} (${treatment.timeSlot}) - total: ${totalSent}`);
-          };
-          
-          console.log('🔄 Starting to process all animal types...');
-          
-          // Process ALL animal types. Each file's treatments are sent to the
-          // client the moment that file is checked, instead of waiting for
-          // the whole folder (all ~20-30 files) to be scanned first.
-          for (const animalType of animalTypes) {
-            const folderIdUsed = ANIMAL_TREATMENT_SHEETS()[animalType].folderId;
-            console.log(`🐾 Processing ${animalType}... (folderId: ${folderIdUsed})`);
-            const startTime = Date.now();
-            const { date, label } = datesToFetch[0];
-            const dateStr = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+          const onFileChecked = async (record) => {
+            const built = await buildTreatmentsFromRecord(record, photoCache, targetDate, label);
+            if (built.length === 0) return;
 
-            const onFileChecked = async (fileName, dateResults) => {
-              const fileResult = dateResults[dateStr];
-              if (!fileResult || !fileResult.hasTreatment) return;
-
-              const treatmentTimes = fileResult.treatmentTimes || [];
-              if (treatmentTimes.length === 0) return;
-
-              let animalName = fileName
-                .replace('.xlsx', '')
-                .replace('.xls', '')
-                .replace(/^עותק של\s+/i, '')
-                .trim();
-              animalName = animalName.replace(/\s+\d{15}$/, '').trim();
-              if (!animalName) {
-                animalName = fileName.replace('.xlsx', '').replace('.xls', '');
-              }
-
-              // Fetch photo once per animal
-              const cacheKey = `${animalType}_${animalName}`;
-              if (!photoCache.has(cacheKey)) {
-                try {
-                  const photo = await getAnimalPhoto(animalType, animalName);
-                  photoCache.set(cacheKey, photo || null);
-                } catch (error) {
-                  photoCache.set(cacheKey, null);
-                }
-              }
-              const animalPhoto = photoCache.get(cacheKey);
-
-              // Group regular treatments by timeSlot to combine multiple rows;
-              // personal treatments are sent individually, general ones skipped.
-              const groupedTreatments = new Map();
-              for (const timeInfo of treatmentTimes) {
-                if (timeInfo.timeSlot === 'personal') {
-                  const personalTreatment = {
-                    id: `${animalType}_${fileName}_personal_${label}_${Math.random()}`,
-                    animalName,
-                    animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
-                    animalTypeKey: animalType,
-                    animalImage: animalPhoto || '',
-                    medicalCase: timeInfo.medicalCase || timeInfo.treatment || 'ללא תיאור',
-                    treatmentType: geteTreatmentTypeByTimeSlot(timeInfo.timeSlot),
-                    time: getTimeBySlot(timeInfo.timeSlot),
-                    timeSlot: 'personal',
-                    caregiver: timeInfo.caregiver || 'נקבע לפי זמינות',
-                    emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
-                    isCompleted: timeInfo.isCompleted || false,
-                    treatmentDate: date.toISOString().split('T')[0],
-                    dateLabel: label,
-                    rowCount: 1,
-                    sourceFolderId: folderIdUsed
-                  };
-                  sendTreatment(personalTreatment);
-                } else if (timeInfo.timeSlot !== 'general') {
-                  if (!groupedTreatments.has(timeInfo.timeSlot)) {
-                    groupedTreatments.set(timeInfo.timeSlot, []);
-                  }
-                  groupedTreatments.get(timeInfo.timeSlot).push(timeInfo);
-                }
-              }
-
-              for (const [timeSlot, rows] of groupedTreatments.entries()) {
-                let displayText = '';
-                const medicalCases = rows.map(r => r.medicalCase).filter(c => c && c.trim());
-                const treatmentsList = rows.map(r => r.treatment).filter(t => t && t.trim());
-
-                if (medicalCases.length > 0) {
-                  displayText = medicalCases[0];
-                } else if (treatmentsList.length > 0) {
-                  displayText = treatmentsList.join(', ');
-                } else {
-                  displayText = 'ללא תיאור';
-                }
-
-                const isCompleted = rows.every(r => r.isCompleted === true);
-
-                const treatment = {
-                  id: `${animalType}_${fileName}_${timeSlot}_${label}_${Math.random()}`,
-                  animalName,
-                  animalType: ANIMAL_TREATMENT_SHEETS()[animalType].displayName,
-                  animalTypeKey: animalType,
-                  animalImage: animalPhoto || '',
-                  medicalCase: displayText,
-                  treatmentType: geteTreatmentTypeByTimeSlot(timeSlot),
-                  time: getTimeBySlot(timeSlot),
-                  timeSlot,
-                  caregiver: "נקבע לפי זמינות",
-                  emoji: ANIMAL_TREATMENT_SHEETS()[animalType].emoji,
-                  isCompleted,
-                  treatmentDate: date.toISOString().split('T')[0],
-                  dateLabel: label,
-                  rowCount: rows.length
-                };
-
-                sendTreatment(treatment);
-              }
-
-              processedAnimalsCount++;
-              console.log(`   Animal ${processedAnimalsCount}: ${animalName} (${animalType}) - sent immediately`);
-              // Yield to macrotask queue so Node.js flushes the HTTP buffer to the socket.
-              // Without this, synchronous enqueue calls after a cached-photo microtask
-              // are never flushed until controller.close() fires.
-              await new Promise(resolve => setTimeout(resolve, 0));
-            };
-
-            try {
-              await getRecentlyEditedFilesWithTreatmentsForDates(
-                ANIMAL_TREATMENT_SHEETS()[animalType].folderId,
-                datesToFetch.map(d => d.date),
-                onFileChecked
-              );
-
-              console.log(`✓ ${animalType} data fetched in ${Date.now() - startTime}ms`);
-            } catch (error) {
-              console.error(`❌ Error processing ${animalType}:`, error.message);
+            for (const treatment of built) {
+              const data = JSON.stringify({ treatments: [treatment], more: true }) + '\n';
+              controller.enqueue(encoder.encode(data));
+              totalSent += 1;
+              console.log(`📨 Sent treatment for ${treatment.animalName} (${treatment.timeSlot}) - total: ${totalSent}`);
             }
-          }
-          
-          // Send final completion message
+
+            processedAnimalsCount++;
+            // Yield so Node.js flushes the HTTP buffer to the socket.
+            await new Promise(resolve => setTimeout(resolve, 0));
+          };
+
+          console.log('🔄 Resolving scheduled treatments from log...');
+          await getScheduledTreatmentsFromLog(dateStr, allowedTypes, onFileChecked);
+
           const finalChunk = {
             treatments: [],
             more: false,
@@ -293,8 +186,8 @@ export async function GET(request) {
             total: totalSent
           };
           controller.enqueue(encoder.encode(JSON.stringify(finalChunk) + '\n'));
-          console.log(`✅ Streaming complete - sent ${totalSent} treatments total for ${processedAnimalsCount} animals with today treatments`);
-          
+          console.log(`✅ Streaming complete - sent ${totalSent} treatments for ${processedAnimalsCount} animals`);
+
         } catch (error) {
           console.error('❌ Streaming error:', error);
           controller.error(error);
@@ -303,7 +196,7 @@ export async function GET(request) {
         }
       }
     });
-    
+
     return new Response(streamResponse, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
@@ -322,6 +215,20 @@ export async function GET(request) {
       treatments: []
     }, { status: 500 });
   }
+}
+
+// Accept both YYYY-MM-DD (HTML date input) and DD/MM/YYYY.
+function parseDateParam(str) {
+  if (!str) return null;
+  if (str.includes('-')) {
+    const [year, month, day] = str.split('-').map(Number);
+    if (year && month && day) return new Date(year, month - 1, day);
+  }
+  if (str.includes('/')) {
+    const [day, month, year] = str.split('/').map(Number);
+    if (year && month && day) return new Date(year, month - 1, day);
+  }
+  return null;
 }
 
 function geteTreatmentTypeByTimeSlot(timeSlot) {

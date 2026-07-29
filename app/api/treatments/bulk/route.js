@@ -1,4 +1,4 @@
-import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded, getAnimalTypeKey, setCaregiverForAnimal, createAnimalTreatmentSheet, getAnimals } from '@/src/lib/sheets';
+import { ANIMAL_TREATMENT_SHEETS, addTreatmentAtTop, findSheetIdByName, deleteAnimalTreatmentsBetweenDates, sortAnimalTreatmentsByDateDescending, ensureConfigLoaded, getAnimalTypeKey, setCaregiverForAnimal, createAnimalTreatmentSheet, getAnimals, logTreatmentCourses } from '@/src/lib/sheets';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -115,7 +115,32 @@ export async function POST(request) {
       
       const result = await addTreatmentAtTop(animalSheetId, treatments, isGeneralCaregiver, isPersonalCaregiver);
       await sortAnimalTreatmentsByDateDescending(animalSheetId, animalName);
-      
+
+      // Best-effort: index this save in the treatment log so the daily
+      // schedule can find it by date without scanning every animal file.
+      // Non-blocking — a log failure must never fail the treatment save.
+      try {
+        let animalId = '';
+        try {
+          const animalsList = await getAnimals(animalTypeKey);
+          const matched = animalsList.find(a => a.name === animalName);
+          animalId = (matched && (matched.id || matched.id_number)) || '';
+        } catch (idErr) {
+          console.warn('Treatment log: could not resolve animalId:', idErr?.message || idErr);
+        }
+        await logTreatmentCourses({
+          animalType: animalTypeKey,
+          animalName,
+          animalId,
+          fileId: animalSheetId,
+          treatments,
+          isGeneralCaregiver,
+          isPersonalCaregiver
+        });
+      } catch (logErr) {
+        console.error('Treatment log write failed (non-blocking):', logErr?.message || logErr);
+      }
+
       // Update caregiver if provided
       if (caregiverName && caregiverName.trim()) {
         try {
