@@ -13,6 +13,16 @@ export const revalidate = 0;                 // disable ISR if present
 // Only these animal types are shown on the shared daily schedule.
 const allowedTypes = ['donkey', 'horse', 'sheep', 'goat', 'camel', 'mule'];
 
+// Format a Date as YYYY-MM-DD using LOCAL components (not toISOString, which
+// converts to UTC and shifts the calendar day for TZ offsets ahead of UTC —
+// must match the frontend's local-date filtering in DailySchedule.tsx).
+function toISODateStr(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // Build the client-facing treatment objects for a single log record.
 // Regular time-slot rows are grouped per slot; personal treatments are emitted
 // individually; general treatments are skipped (shown elsewhere).
@@ -51,7 +61,7 @@ async function buildTreatmentsFromRecord(record, photoCache, dateObj, label) {
         caregiver: timeInfo.caregiver || 'נקבע לפי זמינות',
         emoji: typeInfo.emoji,
         isCompleted: timeInfo.isCompleted || false,
-        treatmentDate: dateObj.toISOString().split('T')[0],
+        treatmentDate: toISODateStr(dateObj),
         dateLabel: label,
         rowCount: 1,
         sourceFolderId: typeInfo.folderId
@@ -92,7 +102,7 @@ async function buildTreatmentsFromRecord(record, photoCache, dateObj, label) {
       caregiver: 'נקבע לפי זמינות',
       emoji: typeInfo.emoji,
       isCompleted,
-      treatmentDate: dateObj.toISOString().split('T')[0],
+      treatmentDate: toISODateStr(dateObj),
       dateLabel: label,
       rowCount: rows.length
     });

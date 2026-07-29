@@ -631,11 +631,14 @@ async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
           .replace(/^עותק של\s+/i, '')
           .trim();
         
-        // Remove parentheses and 15-digit numbers from the end
-        cleanFileName = stripParentheses(cleanFileName).replace(/\s+\d{15}$/, '').trim();
-        
+        // Remove parentheses and trailing chip-ID numbers from the end. Chip
+        // IDs are usually 15 digits but leading zeros are sometimes dropped
+        // (e.g. by Sheets round-tripping through a numeric cell), so match
+        // any trailing run of digits rather than hardcoding 15.
+        cleanFileName = stripParentheses(cleanFileName).replace(/\s+\d{6,}$/, '').trim();
+
         // Clean up the animal name (remove parentheses and numbers if present)
-        const cleanAnimalName = stripParentheses(animal).replace(/\s+\d{15}$/, '').trim();
+        const cleanAnimalName = stripParentheses(animal).replace(/\s+\d{6,}$/, '').trim();
         
         let isMatch = cleanFileName === cleanAnimalName;
         
@@ -671,7 +674,7 @@ async function findSpreadsheetsForCaregiverInFolder(animalType, caregiverName) {
 export async function findSheetIdByName(folderId, animalName){
   const drive = getDriveClient();
   try {
-    const normalizedAnimalName = stripParentheses(animalName).replace(/\s+\d{15}$/, '').trim();
+    const normalizedAnimalName = stripParentheses(animalName).replace(/\s+\d{6,}$/, '').trim();
 
     console.log(`[findSheetIdByName] Searching for: "${animalName}", normalized: "${normalizedAnimalName}"`);
 
@@ -700,7 +703,7 @@ export async function findSheetIdByName(folderId, animalName){
       // Remove "עותק של " prefix if present
       const nameWithoutPrefix = nameWithoutExtension.replace(/^עותק של /, '');
       // Extract the name part (first word after removing prefix)
-      const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d{15}$/, '').trim();
+      const fileNameClean = stripParentheses(nameWithoutPrefix).replace(/\s+\d{6,}$/, '').trim();
       const isMatch = fileNameClean === normalizedAnimalName;
       if (isMatch) {
         console.log(`  [findSheetIdByName] ✓ MATCH FOUND: "${file.name}"`);
@@ -802,8 +805,12 @@ export async function getAnimalTreatments(animalType, animalName) {
       return [];
     }
 
-    // Check cache first
-    const cached = getFromCache(spreadsheetId, 'treatments', 'all');
+    // Check cache first — validate against Drive's authoritative modifiedTime so a
+    // treatment just added on a different warm serverless instance (whose
+    // invalidateCache() call never reached this instance's in-memory cache) isn't
+    // served stale, missing rows.
+    const fileModifiedTime = await getDriveFileModifiedTime(spreadsheetId);
+    const cached = getFromCache(spreadsheetId, 'treatments', 'all', fileModifiedTime);
     if (cached) {
       return cached;
     }
@@ -819,25 +826,42 @@ export async function getAnimalTreatments(animalType, animalName) {
     headers.forEach((name, idx) => {
       headerMap[name.trim()] = idx;
     });
+    // Fall back to the standard column layout (CLAUDE.md: תאריך, יום, בוקר, צהריים,
+    // ערב, טיפול כללי, טיפול אישי, טיפול, מינון, מתן, משך, מתחם, סיבת טיפול, הערות)
+    // when a header name isn't found in row 1 — e.g. a corrupted/overwritten header
+    // row would otherwise make every field silently resolve to '' for every row.
+    const col = (name, fallback) => headerMap[name] !== undefined ? headerMap[name] : fallback;
+    const dateCol = col('תאריך', 0);
+    const dayCol = col('יום', 1);
+    const morningCol = col('בוקר', 2);
+    const noonCol = col('צהריים', 3);
+    const eveningCol = col('ערב', 4);
+    const treatmentCol = col('טיפול', 7);
+    const dosageCol = col('מינון', 8);
+    const administrationCol = col('מתן', 9);
+    const durationCol = col('משך', 10);
+    const locationCol = col('מתחם', 11);
+    const caseCol = col('סיבת טיפול', 12);
+    const notesCol = col('הערות', 13);
     const treatmentsMap = rows.map((row, index) => ({
       rowIndex: index + 2, // sheet row number (1-based + header row)
-      date: row._rawData?.[headerMap['תאריך']] || row._rawData?.[0] || '',
-      day: row._rawData?.[headerMap['יום']] || '',
-      morning: row._rawData?.[headerMap['בוקר']] || '',
-      noon: row._rawData?.[headerMap['צהריים']] || '',
-      evening: row._rawData?.[headerMap['ערב']] || '',
-      treatment: row._rawData?.[headerMap['טיפול']] || '',
-      dosage: row._rawData?.[headerMap['מינון']] || '',
-      administration: row._rawData?.[headerMap['מתן']] || '',
-      duration: row._rawData?.[headerMap['משך']] || '',
-      location: row._rawData?.[headerMap['מתחם']] || '',
-      case: row._rawData?.[headerMap['סיבת טיפול']] || '',
-      notes: row._rawData?.[headerMap['הערות']] || '',
+      date: row._rawData?.[dateCol] || row._rawData?.[0] || '',
+      day: row._rawData?.[dayCol] || '',
+      morning: row._rawData?.[morningCol] || '',
+      noon: row._rawData?.[noonCol] || '',
+      evening: row._rawData?.[eveningCol] || '',
+      treatment: row._rawData?.[treatmentCol] || '',
+      dosage: row._rawData?.[dosageCol] || '',
+      administration: row._rawData?.[administrationCol] || '',
+      duration: row._rawData?.[durationCol] || '',
+      location: row._rawData?.[locationCol] || '',
+      case: row._rawData?.[caseCol] || '',
+      notes: row._rawData?.[notesCol] || '',
       photo: row._rawData?.[14] || '' // column O — treatment photo (base64)
     }));
 
     // Store in cache
-    setInCache(spreadsheetId, 'treatments', 'all', treatmentsMap);
+    setInCache(spreadsheetId, 'treatments', 'all', treatmentsMap, fileModifiedTime);
 
     return treatmentsMap;
   } catch (error) {
@@ -2792,13 +2816,9 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
     const endA = colToA1(endCol);
     let row2HadNoDate = false;
 
-    // Detect checkbox columns from the data we're already reading — no extra API call.
-    // If any scanned row has a boolean value (TRUE/FALSE) in a time-slot column, that
-    // column has BOOLEAN data validation, so empty cells ('') should be treated as
-    // uncompleted checkboxes (FALSE) rather than absent treatments.
-    const checkboxCols = { morning: false, noon: false, evening: false };
-    // Raw rows for dates we care about — collected during the scan, post-processed after
-    // we've seen enough rows to know which columns are checkbox columns.
+    // Raw rows for dates we care about — collected during the scan, post-processed
+    // below (blank time-slot cells are resolved against real per-cell checkbox
+    // validation fetched from Sheets, not guessed from surrounding values).
     const rawMatchingRows = [];
 
     // Single pass through the sheet to find all dates
@@ -2862,15 +2882,6 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
           continue;
         }
         
-        // Accumulate checkbox column knowledge from EVERY row, including the row
-        // that triggers the early-stop break below. The first row older than today
-        // often has an explicit FALSE for evening that proves the column is a checkbox
-        // column — so detection must happen before the break, not after.
-        const isBoolValCheck = v => v === true || v === 'TRUE' || v === false || v === 'FALSE';
-        if (!checkboxCols.morning && isBoolValCheck(rowValues[morningCol])) checkboxCols.morning = true;
-        if (!checkboxCols.noon    && isBoolValCheck(rowValues[noonCol]))    checkboxCols.noon    = true;
-        if (!checkboxCols.evening && isBoolValCheck(rowValues[eveningCol])) checkboxCols.evening = true;
-
         if (parsedRowDate < minDate) {
           console.log(`   ⏹️ Date ${parsedRowDate} < minDate ${minDate}, stopping scan`);
           break outerLoop;
@@ -2881,18 +2892,63 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
           console.log(`✓ Found treatment for ${dateInfo.dateStr} in row date: ${stringDate}`);
           console.log(`   Row values: morning[${morningCol}]=${rowValues[morningCol]}, noon[${noonCol}]=${rowValues[noonCol]}, evening[${eveningCol}]=${rowValues[eveningCol]}, general[${generalTreatmentCol}]=${rowValues[generalTreatmentCol]}, personal[${personalTreatmentCol}]=${rowValues[personalTreatmentCol]}`);
           dateInfo.hasTreatment = true;
-          rawMatchingRows.push({ parsedRowDate, rowValues });
+          rawMatchingRows.push({ parsedRowDate, rowValues, rowNumber: r + i });
         }
       }
     }
 
-    // Post-process matching rows now that we've seen the whole sheet and know
-    // which time-slot columns have BOOLEAN validation.
-    console.log(`   📋 Detected checkbox columns: morning=${checkboxCols.morning}, noon=${checkboxCols.noon}, evening=${checkboxCols.evening}`);
+    // Post-process matching rows now that we've seen the whole sheet.
     const isBoolVal = v => v === true || v === 'TRUE' || v === false || v === 'FALSE';
     const isChecked = v => v === true || v === 'TRUE';
 
-    for (const { parsedRowDate, rowValues } of rawMatchingRows) {
+    // Some matched rows have a genuinely blank ('') cell in a time-slot column that
+    // is nonetheless meant to be an unchecked checkbox (Sheets sometimes round-trips
+    // an untouched checkbox cell as '' instead of FALSE). A sheet-wide or same-row
+    // value heuristic can't reliably tell that apart from "not applicable to this
+    // medicine", because a single row can legitimately mix a real checkbox in one
+    // slot with a blank-but-scheduled checkbox in another. So for any matched row
+    // with a blank slot cell, ask Sheets directly whether that specific cell has
+    // BOOLEAN data validation — the authoritative signal, not a guess from values.
+    const cellHasCheckbox = {}; // rowNumber -> { morning, noon, evening }
+    const rowsWithBlankSlot = rawMatchingRows.filter(({ rowValues }) =>
+      rowValues[morningCol] === '' || rowValues[noonCol] === '' || rowValues[eveningCol] === ''
+    );
+    if (rowsWithBlankSlot.length > 0) {
+      try {
+        const colStart = Math.min(morningCol, noonCol, eveningCol) + 1; // 0-based -> 1-based
+        const colEnd = Math.max(morningCol, noonCol, eveningCol) + 1;
+        const rowNumbers = rowsWithBlankSlot.map(rw => rw.rowNumber);
+        const minRow = Math.min(...rowNumbers);
+        const maxRow = Math.max(...rowNumbers);
+        const valRange = `${sheetName}!${colToA1(colStart)}${minRow}:${colToA1(colEnd)}${maxRow}`;
+
+        const valResp = await sheetAPI.spreadsheets.get({
+          spreadsheetId: sheetId,
+          ranges: [valRange],
+          fields: 'sheets.data.rowData.values.dataValidation'
+        });
+        await sleep(SHEET_READ_DELAY_MS);
+
+        const rowDataArr = valResp.data?.sheets?.[0]?.data?.[0]?.rowData || [];
+        rowDataArr.forEach((rd, ri) => {
+          const sheetRowNumber = minRow + ri;
+          const cells = rd.values || [];
+          const flags = { morning: false, noon: false, evening: false };
+          cells.forEach((cell, ci) => {
+            const absCol = colStart + ci - 1; // back to 0-based headerMap index
+            const isCheckboxCell = cell?.dataValidation?.condition?.type === 'BOOLEAN';
+            if (absCol === morningCol) flags.morning = isCheckboxCell;
+            if (absCol === noonCol) flags.noon = isCheckboxCell;
+            if (absCol === eveningCol) flags.evening = isCheckboxCell;
+          });
+          cellHasCheckbox[sheetRowNumber] = flags;
+        });
+      } catch (valErr) {
+        console.warn('Could not fetch cell checkbox validation, falling back to no-checkbox for blank cells:', valErr?.message || valErr);
+      }
+    }
+
+    for (const { parsedRowDate, rowValues, rowNumber } of rawMatchingRows) {
       const dateInfo = datesToFind[parsedRowDate];
 
       const morningValue = rowValues[morningCol];
@@ -2937,10 +2993,16 @@ export async function hasTreatmentForDates(sheetId, dateStrings, excludeCheckedG
           dateInfo.treatmentTimes.push({ timeSlot: 'general', medicalCase, treatment, dosage, isGeneral: true, isCompleted: false, isPersonal: false });
         }
       } else {
-        // Treat '' as FALSE for any column with detected BOOLEAN validation.
-        const morningActive = isBoolVal(morningValue) || (checkboxCols.morning && morningValue === '');
-        const noonActive    = isBoolVal(noonValue)    || (checkboxCols.noon    && noonValue    === '');
-        const eveningActive = isBoolVal(eveningValue) || (checkboxCols.evening && eveningValue === '');
+        // Treat '' as FALSE for a blank slot column only when THAT SPECIFIC CELL
+        // actually has BOOLEAN checkbox validation applied (per cellHasCheckbox,
+        // fetched directly from Sheets) — i.e. it's an unclicked checkbox that
+        // round-tripped as '' instead of FALSE. A row can legitimately mix a real
+        // checkbox in one slot with a blank-but-scheduled checkbox in another, so
+        // this is decided per cell, not per row or sheet-wide.
+        const rowFlags = cellHasCheckbox[rowNumber] || { morning: false, noon: false, evening: false };
+        const morningActive = isBoolVal(morningValue) || (rowFlags.morning && morningValue === '');
+        const noonActive    = isBoolVal(noonValue)    || (rowFlags.noon    && noonValue    === '');
+        const eveningActive = isBoolVal(eveningValue) || (rowFlags.evening && eveningValue === '');
         const hasTimeSlots = morningActive || noonActive || eveningActive;
 
         if (hasTimeSlots) {
@@ -3521,7 +3583,7 @@ export async function removeAnimalFromList(animalType, animalName) {
   animalType | animalName | animalId | fileId | startDate | endDate | frequency | timeSlots | createdAt
 ---------------------------------------------------*/
 export const TREATMENT_LOG_SHEET_ID =
-  process.env.TREATMENT_LOG_SHEET_ID || '1wFJrh8bHQH22yoBa2d5MR_Jz-NISFiboCxoSIpInQn8';
+  process.env.TREATMENT_LOG_SHEET_ID || '1B4sG7-e0GaT_TRYu-y1opxJdBP9pM7-J6p20XavOOkI';
 
 const TREATMENT_LOG_HEADERS = [
   'animalType', 'animalName', 'animalId', 'fileId',
@@ -3724,6 +3786,23 @@ export async function getTreatmentLogEntriesForDate(dateStr, allowedTypes = null
   return entries;
 }
 
+// Look up a file's Drive modifiedTime. Used to bypass the in-memory sheet
+// cache when a file was edited more recently than the cached entry — this
+// matters because invalidateCache() only clears the cache of the serverless
+// instance that handled the write, not other warm instances that may serve
+// the next read, so a real read-your-writes fix needs the authoritative
+// Drive timestamp rather than relying on in-process invalidation alone.
+async function getDriveFileModifiedTime(fileId) {
+  try {
+    const drive = getDriveClient();
+    const res = await drive.files.get({ fileId, fields: 'modifiedTime' });
+    return res.data.modifiedTime || null;
+  } catch (err) {
+    console.warn(`Could not fetch modifiedTime for file ${fileId}:`, err?.message || err);
+    return null;
+  }
+}
+
 // Resolve the actual scheduled treatments for `dateStr` using the log as the
 // index: read the log once, then open ONLY the matched files to read their real
 // rows + completion status for that date. Files are deduped so each is read at
@@ -3747,7 +3826,8 @@ export async function getScheduledTreatmentsFromLog(dateStr, allowedTypes = null
   for (const entry of byFile.values()) {
     let dateResults;
     try {
-      dateResults = await hasTreatmentForDates(entry.fileId, [dateStr], false, null);
+      const fileModifiedTime = await getDriveFileModifiedTime(entry.fileId);
+      dateResults = await hasTreatmentForDates(entry.fileId, [dateStr], false, fileModifiedTime);
     } catch (err) {
       console.error(`Log reader: failed reading file ${entry.fileId} (${entry.animalName}):`, err?.message || err);
       continue;

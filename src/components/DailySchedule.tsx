@@ -73,6 +73,15 @@ const formatDate = (date: Date): string => {
   return `${day}.${month}.${year}`;
 };
 
+// Helper function to format a Date as YYYY-MM-DD using LOCAL components
+// (not toISOString, which converts to UTC and can shift the calendar day)
+const toISODateStr = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 
 export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyScheduleProps) {
   const [completedTreatments, setCompletedTreatments] = useState<Set<string>>(new Set());
@@ -133,10 +142,21 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   // Ref to prevent duplicate fetches
   const fetchInProgressRef = useRef(false);
 
-  const todayObj = new Date();
-  const selectedDay = { dateObj: todayObj, day: getHebrewDayName(todayObj), date: formatDate(todayObj), isToday: true };
+  // Which day's schedule is being shown — defaults to today, changeable via the date picker
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
 
-  // Fetch treatments from API with streaming support
+  const selectedDay = {
+    dateObj: selectedDate,
+    day: getHebrewDayName(selectedDate),
+    date: formatDate(selectedDate),
+    isToday: selectedDate.toDateString() === new Date().toDateString()
+  };
+
+  // Fetch treatments from API with streaming support — refetches whenever the selected date changes
   useEffect(() => {
     const fetchTreatments = async () => {
       // Prevent duplicate fetches
@@ -149,9 +169,13 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         fetchInProgressRef.current = true;
         setLoading(true);
         setError(null);
-        
-        console.log('🚀 Starting streaming fetch...');
-        const response = await fetch('/api/treatments/today?stream=true');
+        setTreatments([]);
+        setCompletedTreatments(new Set());
+        setNeedsFollowUp([]);
+
+        const dateQuery = toISODateStr(selectedDate);
+        console.log('🚀 Starting streaming fetch for', dateQuery);
+        const response = await fetch(`/api/treatments/today?stream=true&date=${dateQuery}`);
         
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -278,7 +302,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
     };
 
     fetchTreatments();
-  }, []);
+  }, [selectedDate]);
 
   // Fetch caregivers list once on mount
   useEffect(() => {
@@ -330,7 +354,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   // Group treatments by animal+case combination, then by time section
   const groupedTreatments = (() => {
     // Filter treatments by selected date first
-    const selectedDateStr = selectedDay.dateObj.toISOString().split('T')[0];
+    const selectedDateStr = toISODateStr(selectedDay.dateObj);
     console.log('Selected date string:', selectedDateStr);
     console.log('Total treatments before filtering:', treatments.length);
     console.log('Sample treatment dates:', treatments.slice(0, 3).map(t => ({ name: t.animalName, date: t.treatmentDate })));
@@ -393,7 +417,7 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
   })();
 
   // Get all treatments for the overview (right side) - filter by selected date and exclude general treatments
-  const selectedDateStr = selectedDay.dateObj.toISOString().split('T')[0];
+  const selectedDateStr = toISODateStr(selectedDay.dateObj);
   const overviewTreatments = treatments.filter(t => 
     t.treatmentDate === selectedDateStr && t.timeSlot !== 'general'
   );
@@ -667,13 +691,37 @@ export default function DailySchedule({ onSelectAnimal, onAddTreatment }: DailyS
         <div className="xl:col-span-8 space-y-6">
               <Card className="mb-6">
                 <CardHeader>
-                  <div className="text-center">
+                  <div className="text-center space-y-3">
                     <CardTitle className="flex items-center justify-center gap-2">
                       <CalendarIcon className="w-5 h-5" />
                       {selectedDay.day}, {selectedDay.date}
                     </CardTitle>
+                    <div className="flex items-center justify-center gap-2">
+                      <input
+                        type="date"
+                        value={toISODateStr(selectedDate)}
+                        onChange={e => {
+                          const [year, month, day] = e.target.value.split('-').map(Number);
+                          if (year && month && day) setSelectedDate(new Date(year, month - 1, day));
+                        }}
+                        className="px-3 py-2 border rounded-md text-sm"
+                      />
+                      {!selectedDay.isToday && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setHours(0, 0, 0, 0);
+                            setSelectedDate(d);
+                          }}
+                        >
+                          חזרה להיום
+                        </Button>
+                      )}
+                    </div>
                     <Badge className="mt-2" style={{ backgroundColor: '#CFE4D3', color: '#333333' }}>
-                      היום
+                      {selectedDay.isToday ? 'היום' : 'תאריך נבחר'}
                     </Badge>
                   </div>
                 </CardHeader>
